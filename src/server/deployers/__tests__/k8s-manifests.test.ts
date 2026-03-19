@@ -31,7 +31,6 @@ describe("k8s state sync manifests", () => {
       "openclaw-alpha-openclaw",
       config,
       false,
-      false,
       [{ key: "f0", path: "briefing-bot/SKILL.md", content: "# Briefing Bot" }],
       [{ key: "f1", path: "workspace-main/AGENTS.md", content: "# Alpha" }],
       "{\"jobs\":[{\"name\":\"daily-brief\"}]}",
