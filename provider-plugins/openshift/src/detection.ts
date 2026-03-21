@@ -7,7 +7,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs = K8S_PROBE_TIMEOUT
   return await Promise.race([
     promise,
     new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
+      globalThis.setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
     }),
   ]);
 }

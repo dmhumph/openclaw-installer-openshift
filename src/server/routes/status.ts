@@ -107,6 +107,13 @@ router.get("/", async (req, res) => {
               agentDisplayName: displayName.charAt(0).toUpperCase() + displayName.slice(1),
               image: savedVars.OPENCLAW_IMAGE || undefined,
               port: savedVars.OPENCLAW_PORT ? parseInt(savedVars.OPENCLAW_PORT, 10) : undefined,
+              inferenceProvider: savedVars.INFERENCE_PROVIDER as
+                | "anthropic"
+                | "openai"
+                | "vertex-anthropic"
+                | "vertex-google"
+                | "custom-endpoint"
+                | undefined,
               anthropicApiKey: savedVars.ANTHROPIC_API_KEY || undefined,
               openaiApiKey: savedVars.OPENAI_API_KEY || undefined,
               telegramBotToken: savedVars.TELEGRAM_BOT_TOKEN || undefined,
@@ -690,6 +697,13 @@ async function findInstance(name: string): Promise<DeployResult | null> {
           containerRuntime: runtime,
           image: savedVars.OPENCLAW_IMAGE || undefined,
           port: savedVars.OPENCLAW_PORT ? parseInt(savedVars.OPENCLAW_PORT, 10) : undefined,
+          inferenceProvider: savedVars.INFERENCE_PROVIDER as
+            | "anthropic"
+            | "openai"
+            | "vertex-anthropic"
+            | "vertex-google"
+            | "custom-endpoint"
+            | undefined,
           anthropicApiKey: savedVars.ANTHROPIC_API_KEY || undefined,
           openaiApiKey: savedVars.OPENAI_API_KEY || undefined,
           agentModel: savedVars.AGENT_MODEL || undefined,
@@ -758,43 +772,41 @@ async function findInstance(name: string): Promise<DeployResult | null> {
   }
 
   // Check K8s namespaces
-  if (await isClusterReachable()) {
-    const k8sInstances = await discoverK8sInstances();
-    const ki = k8sInstances.find((i) => i.namespace === name);
-    if (ki) {
-      const mode = await savedDeployMode(ki.namespace);
-      let instance: DeployResult = {
-        id: ki.namespace,
+  const k8sInstances = await discoverK8sInstances({ namespaces: [name] });
+  const ki = k8sInstances.find((i) => i.namespace === name);
+  if (ki) {
+    const mode = await savedDeployMode(ki.namespace);
+    let instance: DeployResult = {
+      id: ki.namespace,
+      mode,
+      status: ki.status,
+      config: {
         mode,
-        status: ki.status,
-        config: {
-          mode,
-          prefix: ki.prefix,
-          agentName: ki.agentName,
-          agentDisplayName: ki.agentName
-            ? ki.agentName.charAt(0).toUpperCase() + ki.agentName.slice(1)
-            : ki.namespace,
-          namespace: ki.namespace,
-          image: ki.image,
-        },
-        startedAt: "",
-        url: ki.url || undefined,
-        containerId: ki.namespace,
-        statusDetail: ki.statusDetail,
-        pods: ki.pods,
-      };
+        prefix: ki.prefix,
+        agentName: ki.agentName,
+        agentDisplayName: ki.agentName
+          ? ki.agentName.charAt(0).toUpperCase() + ki.agentName.slice(1)
+          : ki.namespace,
+        namespace: ki.namespace,
+        image: ki.image,
+      },
+      startedAt: "",
+      url: ki.url || undefined,
+      containerId: ki.namespace,
+      statusDetail: ki.statusDetail,
+      pods: ki.pods,
+    };
 
-      const deployer = registry.get(mode);
-      if (deployer && typeof deployer.status === "function") {
-        try {
-          instance = await deployer.status(instance);
-        } catch {
-          // Use base instance if status enrichment fails
-        }
+    const deployer = registry.get(mode);
+    if (deployer && typeof deployer.status === "function") {
+      try {
+        instance = await deployer.status(instance);
+      } catch {
+        // Use base instance if status enrichment fails
       }
-
-      return instance;
     }
+
+    return instance;
   }
 
   return null;

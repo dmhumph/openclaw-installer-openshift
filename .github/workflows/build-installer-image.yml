@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE: quay.io/aicatalyst/claw-installer
+  IMAGE: quay.io/sallyom/openclaw-installer
 
 jobs:
   # PR validation: amd64 only, no push

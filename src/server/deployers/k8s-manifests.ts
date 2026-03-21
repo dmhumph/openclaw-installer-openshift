@@ -327,8 +327,8 @@ echo "Config initialized"
               ports: [{ name: "gateway", containerPort: 18789, protocol: "TCP" }],
               env: envVars,
               resources: {
-                requests: { memory: "512Mi", cpu: "250m" },
-                limits: { memory: "2Gi", cpu: "1000m" },
+                requests: { memory: "1Gi", cpu: "250m" },
+                limits: { memory: "4Gi", cpu: "1000m" },
               },
               livenessProbe: {
                 exec: {

@@ -1,5 +1,11 @@
 export type DeployMode = string;
 export type BuiltinDeployMode = "local" | "kubernetes" | "ssh" | "fleet";
+export type InferenceProvider =
+  | "anthropic"
+  | "openai"
+  | "vertex-anthropic"
+  | "vertex-google"
+  | "custom-endpoint";
 
 export interface DeployConfig {
   mode: DeployMode;
@@ -34,6 +40,7 @@ export interface DeployConfig {
   // Model provider (all optional — without them, agents use in-cluster model)
   anthropicApiKey?: string;
   openaiApiKey?: string;
+  inferenceProvider?: InferenceProvider;
   agentModel?: string;
   modelEndpoint?: string;
   // Vertex AI

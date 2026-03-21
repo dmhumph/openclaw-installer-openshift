@@ -43,6 +43,9 @@ const errorK8sInstance = {
 
 function mockFetchWith(instances: unknown[]) {
   return vi.fn((url: string, opts?: RequestInit) => {
+    if (url === "/api/health") {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ k8sAvailable: false }) });
+    }
     if ((url === "/api/instances" || url === "/api/instances?includeK8s=1") && !opts?.method) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(instances) });
     }
@@ -145,6 +148,9 @@ describe("InstanceList", () => {
   it("toggles token panel on button click", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     globalThis.fetch = vi.fn((url: string) => {
+      if (url === "/api/health") {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ k8sAvailable: false }) });
+      }
       if (url === "/api/instances" || url === "/api/instances?includeK8s=1") {
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([runningInstance]) });
       }
@@ -215,6 +221,9 @@ describe("InstanceList", () => {
     vi.stubGlobal("open", openSpy);
 
     globalThis.fetch = vi.fn((url: string) => {
+      if (url === "/api/health") {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ k8sAvailable: false }) });
+      }
       if (url === "/api/instances" || url === "/api/instances?includeK8s=1") {
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([runningInstance]) });
       }
@@ -278,20 +287,28 @@ describe("InstanceList", () => {
     });
   });
 
-  it("includes cluster instances by default and allows hiding them", async () => {
+  it("lets the user opt into cluster instances when k8s is available", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const fetchMock = mockFetchWith([]);
+    const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+      if (url === "/api/health") {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ k8sAvailable: true }) });
+      }
+      if ((url === "/api/instances" || url === "/api/instances?includeK8s=1") && !opts?.method) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    }) as unknown as typeof globalThis.fetch;
     globalThis.fetch = fetchMock;
 
     render(<InstanceList />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /hide cluster/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /include k8s/i })).toBeInTheDocument();
     });
-    expect(fetchMock).toHaveBeenCalledWith("/api/instances?includeK8s=1");
+    expect(fetchMock).toHaveBeenCalledWith("/api/instances");
 
-    await user.click(screen.getByRole("button", { name: /hide cluster/i }));
+    await user.click(screen.getByRole("button", { name: /include k8s/i }));
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/instances");
+      expect(fetchMock).toHaveBeenCalledWith("/api/instances?includeK8s=1");
     });
   });
 });

@@ -8,21 +8,46 @@
 # - Linux: runs as a container with podman or docker socket
 #
 # Usage:
-#   ./run.sh                              # Pull image and start
-#   ./run.sh --build                      # Build from source instead of pulling
-#   ./run.sh --port 8080                  # Use a different port (default: 3000)
-#   ./run.sh --runtime docker             # Force docker (default: auto-detect)
-#   ANTHROPIC_API_KEY=sk-... ./run.sh     # Pass API key
-#   OPENAI_API_KEY=sk-... ./run.sh        # Pass OpenAI key
+#   ./run.sh                                      # Pull image and start
+#   ./run.sh --build                              # Build from source instead of pulling
+#   ./run.sh --port 8080                          # Use a different port (default: 3000)
+#   ./run.sh --runtime docker                     # Force docker (default: auto-detect)
+#   ./run.sh --plugin @acme/openclaw-installer-aws
+#   ./run.sh --plugins @acme/openclaw-installer-aws,@acme/openclaw-installer-gke
+#   OPENCLAW_INSTALLER_PLUGINS=@acme/openclaw-installer-aws ./run.sh
+#   ANTHROPIC_API_KEY=sk-... ./run.sh             # Pass API key
+#   OPENAI_API_KEY=sk-... ./run.sh                # Pass OpenAI key
 # ============================================================================
 
 set -euo pipefail
 
-IMAGE_NAME="${CLAW_INSTALLER_IMAGE:-quay.io/sallyom/claw-installer:latest}"
+IMAGE_NAME="${OPENCLAW_INSTALLER_IMAGE:-${CLAW_INSTALLER_IMAGE:-quay.io/sallyom/openclaw-installer:latest}}"
 CONTAINER_NAME="claw-installer"
 PORT="${PORT:-3000}"
 BUILD=false
 RUNTIME=""
+PLUGIN_LIST="${OPENCLAW_INSTALLER_PLUGINS:-}"
+
+append_plugins() {
+  local raw="$1"
+  if [ -z "$raw" ]; then
+    return
+  fi
+
+  raw="${raw//$'\n'/,}"
+  raw="${raw// /}"
+  raw="${raw#,}"
+  raw="${raw%,}"
+  if [ -z "$raw" ]; then
+    return
+  fi
+
+  if [ -n "$PLUGIN_LIST" ]; then
+    PLUGIN_LIST="${PLUGIN_LIST},${raw}"
+  else
+    PLUGIN_LIST="$raw"
+  fi
+}
 
 # Parse flags
 while [[ $# -gt 0 ]]; do
@@ -30,7 +55,12 @@ while [[ $# -gt 0 ]]; do
     --build) BUILD=true; shift ;;
     --port) PORT="$2"; shift 2 ;;
     --runtime) RUNTIME="$2"; shift 2 ;;
-    --help|-h) echo "Usage: ./run.sh [--build] [--port PORT] [--runtime podman|docker]"; exit 0 ;;
+    --plugin|--provider) append_plugins "$2"; shift 2 ;;
+    --plugins|--providers) append_plugins "$2"; shift 2 ;;
+    --help|-h)
+      echo "Usage: ./run.sh [--build] [--port PORT] [--runtime podman|docker] [--plugin PACKAGE] [--plugins PKG1,PKG2]"
+      exit 0
+      ;;
     *) echo "Unknown flag: $1"; exit 1 ;;
   esac
 done
@@ -45,6 +75,46 @@ info()    { echo -e "${BLUE}$1${NC}"; }
 success() { echo -e "${GREEN}$1${NC}"; }
 error()   { echo -e "${RED}$1${NC}"; exit 1; }
 
+write_plugin_config() {
+  local installer_dir="$1"
+  mkdir -p "$installer_dir"
+
+  if [ -z "$PLUGIN_LIST" ]; then
+    return
+  fi
+
+  IFS=',' read -r -a plugin_array <<< "$PLUGIN_LIST"
+  local filtered=()
+  local plugin
+  for plugin in "${plugin_array[@]}"; do
+    plugin="${plugin// /}"
+    [ -n "$plugin" ] || continue
+    filtered+=("$plugin")
+  done
+
+  if [ "${#filtered[@]}" -eq 0 ]; then
+    return
+  fi
+
+  local config_path="${installer_dir}/plugins.json"
+  {
+    echo "{"
+    echo '  "plugins": ['
+    local i
+    for i in "${!filtered[@]}"; do
+      if [ "$i" -gt 0 ]; then
+        echo ","
+      fi
+      printf '    "%s"' "${filtered[$i]}"
+    done
+    echo ""
+    echo "  ]"
+    echo "}"
+  } > "$config_path"
+
+  info "Configured external installer plugins: ${filtered[*]}"
+}
+
 # Auto-detect runtime
 if [ -z "$RUNTIME" ]; then
   if command -v podman >/dev/null 2>&1; then
@@ -57,6 +127,9 @@ if [ -z "$RUNTIME" ]; then
 fi
 
 info "Using container runtime: $RUNTIME"
+if [ -n "$PLUGIN_LIST" ]; then
+  info "Requested plugin packages: $PLUGIN_LIST"
+fi
 
 # Check podman version (libkrun/applehv requires 5.0+)
 if [ "$RUNTIME" = "podman" ]; then
@@ -115,6 +188,7 @@ if [ "$RUNTIME" = "podman" ] && [ "$OS" = "Darwin" ]; then
   fi
 
   mkdir -p "$HOME/.openclaw/installer"
+  write_plugin_config "$HOME/.openclaw/installer"
 
   info "Starting installer (Ctrl+C to stop)..."
   info "Open http://localhost:${PORT} in your browser."
@@ -161,6 +235,7 @@ fi
 if [ "$RUNTIME" = "docker" ]; then
   info "Detected Docker"
   mkdir -p "$HOME/.openclaw/installer"
+  write_plugin_config "$HOME/.openclaw/installer"
 
   # Stop existing container
   docker stop "$CONTAINER_NAME" 2>/dev/null || true
@@ -198,6 +273,7 @@ case "$OS" in
     fi
 
     mkdir -p "$HOME/.openclaw/installer"
+    write_plugin_config "$HOME/.openclaw/installer"
 
     # Stop existing container
     podman stop "$CONTAINER_NAME" 2>/dev/null || true

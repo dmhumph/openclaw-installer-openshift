@@ -32,8 +32,8 @@ export function appsApi(): k8s.AppsV1Api {
  */
 export async function isClusterReachable(): Promise<boolean> {
   try {
-    const api = coreApi();
-    await api.listNamespace();
+    const client = loadKubeConfig().makeApiClient(k8s.VersionApi);
+    await client.getCode();
     return true;
   } catch {
     return false;
@@ -60,4 +60,28 @@ export function currentContext(): string {
   } catch {
     return "";
   }
+}
+
+export function currentNamespace(): string {
+  try {
+    const kc = loadKubeConfig();
+    const ctxName = kc.getCurrentContext();
+    if (!ctxName) return "";
+    const ctx = kc.getContextObject(ctxName);
+    const ns = ctx?.namespace?.trim();
+    return ns || "";
+  } catch {
+    return "";
+  }
+}
+
+export function k8sApiHttpCode(err: unknown): number | undefined {
+  if (err && typeof err === "object" && "code" in err) {
+    const code = (err as { code: unknown }).code;
+    return typeof code === "number" ? code : undefined;
+  }
+  if (err && typeof err === "object" && "cause" in err) {
+    return k8sApiHttpCode((err as { cause: unknown }).cause);
+  }
+  return undefined;
 }

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { validateAgentName } from "../../shared/validate-agent-name.js";
 
 type InferenceProvider = "anthropic" | "openai" | "vertex-anthropic" | "vertex-google" | "custom-endpoint";
 
@@ -24,6 +25,8 @@ interface ServerDefaults {
   image: string;
   k8sAvailable?: boolean;
   k8sContext?: string;
+  k8sNamespace?: string;
+  isOpenShift?: boolean;
 }
 
 interface GcpDefaults {
@@ -47,6 +50,7 @@ interface SavedConfig {
 const MODE_ICONS: Record<string, string> = {
   local: "💻",
   kubernetes: "☸️",
+  openshift: "☸️",
   ssh: "🖥️",
 };
 
@@ -79,6 +83,12 @@ const PROXY_MODEL_HINTS: Record<string, string> = {
   "vertex-google": "Examples: gemini-2.5-pro, gemini-2.5-flash",
 };
 
+function defaultImageForProvider(provider: InferenceProvider): string {
+  return provider === "vertex-anthropic"
+    ? "ghcr.io/openclaw/openclaw:latest"
+    : "ghcr.io/openclaw/openclaw:latest";
+}
+
 function decodeBase64(value: string | undefined): string {
   if (!value) return "";
   try {
@@ -109,6 +119,21 @@ function inferDisplayNameFromAgentName(value: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function sanitizeNamespacePart(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function deriveNamespace(prefix: string, agentName: string): string {
+  const cleanPrefix = sanitizeNamespacePart(prefix) || "user";
+  const cleanAgent = sanitizeNamespacePart(agentName) || "agent";
+  return `${cleanPrefix}-${cleanAgent}-openclaw`;
 }
 
 const LAST_AGENT_SOURCE_DIR_KEY = "openclaw:last-agent-source-dir";
@@ -181,7 +206,14 @@ export default function DeployForm({ onDeployStarted }: Props) {
   const [gcpDefaults, setGcpDefaults] = useState<GcpDefaults | null>(null);
   const [gcpDefaultsFetched, setGcpDefaultsFetched] = useState(false);
 
+  const isClusterMode = mode === "kubernetes" || mode === "openshift";
   const isVertex = inferenceProvider === "vertex-anthropic" || inferenceProvider === "vertex-google";
+  const displayedDeployers = useMemo(
+    () => (defaults?.isOpenShift
+      ? deployers.filter((deployer) => deployer.mode !== "kubernetes")
+      : deployers),
+    [defaults?.isOpenShift, deployers],
+  );
 
   // Fetch GCP defaults when a Vertex provider is first selected
   useEffect(() => {
@@ -209,6 +241,8 @@ export default function DeployForm({ onDeployStarted }: Props) {
           ...(data.defaults || {}),
           k8sAvailable: data.k8sAvailable,
           k8sContext: data.k8sContext,
+          k8sNamespace: data.k8sNamespace,
+          isOpenShift: data.isOpenShift,
         };
         setDefaults(d);
 
@@ -248,6 +282,12 @@ export default function DeployForm({ onDeployStarted }: Props) {
   }, []);
 
   useEffect(() => {
+    if (defaults?.isOpenShift && mode === "kubernetes") {
+      setMode("openshift");
+    }
+  }, [defaults?.isOpenShift, mode]);
+
+  useEffect(() => {
     try {
       const lastAgentSourceDir = window.localStorage.getItem(LAST_AGENT_SOURCE_DIR_KEY);
       if (!lastAgentSourceDir) return;
@@ -280,19 +320,32 @@ export default function DeployForm({ onDeployStarted }: Props) {
   const applyVars = (vars: Record<string, string>) => {
     // Support both local .env keys (OPENCLAW_PREFIX) and K8s JSON keys (prefix)
     const v = (envKey: string, jsonKey: string) => vars[envKey] || vars[jsonKey] || "";
+    const explicitNamespace = v("K8S_NAMESPACE", "namespace");
 
-    // Map VERTEX_ENABLED / VERTEX_PROVIDER to inferenceProvider (both key formats)
-    const vertexEnabled = vars.VERTEX_ENABLED === "true" || vars.vertexEnabled === "true";
-    if (vertexEnabled) {
-      const vp = vars.VERTEX_PROVIDER || vars.vertexProvider || "anthropic";
-      setInferenceProvider(vp === "google" ? "vertex-google" : "vertex-anthropic");
-    } else if (v("MODEL_ENDPOINT", "modelEndpoint")) {
-      setInferenceProvider("custom-endpoint");
-    } else if (v("OPENAI_API_KEY", "openaiApiKey")) {
-      setInferenceProvider("openai");
-    } else if (v("ANTHROPIC_API_KEY", "anthropicApiKey")) {
-      setInferenceProvider("anthropic");
+    const savedInferenceProvider = v("INFERENCE_PROVIDER", "inferenceProvider");
+    if (
+      savedInferenceProvider === "anthropic"
+      || savedInferenceProvider === "openai"
+      || savedInferenceProvider === "vertex-anthropic"
+      || savedInferenceProvider === "vertex-google"
+      || savedInferenceProvider === "custom-endpoint"
+    ) {
+      setInferenceProvider(savedInferenceProvider);
+    } else {
+      const vertexEnabled = vars.VERTEX_ENABLED === "true" || vars.vertexEnabled === "true";
+      if (vertexEnabled) {
+        const vp = vars.VERTEX_PROVIDER || vars.vertexProvider || "anthropic";
+        setInferenceProvider(vp === "google" ? "vertex-google" : "vertex-anthropic");
+      } else if (v("MODEL_ENDPOINT", "modelEndpoint")) {
+        setInferenceProvider("custom-endpoint");
+      } else if (v("ANTHROPIC_API_KEY", "anthropicApiKey")) {
+        setInferenceProvider("anthropic");
+      } else if (v("OPENAI_API_KEY", "openaiApiKey")) {
+        setInferenceProvider("openai");
+      }
     }
+
+    setNamespaceManuallyEdited(Boolean(explicitNamespace));
 
     setConfig((prev) => ({
       ...prev,
@@ -385,6 +438,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
       agentSourceDir: v("AGENT_SOURCE_DIR", "agentSourceDir") || prev.agentSourceDir,
       telegramBotToken: v("TELEGRAM_BOT_TOKEN", "telegramBotToken") || prev.telegramBotToken,
       telegramAllowFrom: v("TELEGRAM_ALLOW_FROM", "telegramAllowFrom") || prev.telegramAllowFrom,
+      namespace: explicitNamespace || prev.namespace,
       litellmProxy: vars.litellmProxy === "false" ? false : prev.litellmProxy,
       otelEnabled: vars.OTEL_ENABLED === "true" || vars.otelEnabled === "true" || prev.otelEnabled,
       otelJaeger: vars.OTEL_JAEGER === "true" || vars.otelJaeger === "true" || prev.otelJaeger,
@@ -396,6 +450,23 @@ export default function DeployForm({ onDeployStarted }: Props) {
 
   const [displayNameManuallyEdited, setDisplayNameManuallyEdited] = useState(false);
   const [agentNameManuallyEdited, setAgentNameManuallyEdited] = useState(false);
+  const [namespaceManuallyEdited, setNamespaceManuallyEdited] = useState(false);
+  const derivedNamespace = deriveNamespace(config.prefix || defaults?.prefix || "", config.agentName);
+  const suggestedNamespace = useMemo(() => {
+    const ctxNs = defaults?.k8sNamespace?.trim();
+    if (defaults?.isOpenShift && ctxNs) {
+      return ctxNs;
+    }
+    return derivedNamespace;
+  }, [defaults?.isOpenShift, defaults?.k8sNamespace, derivedNamespace]);
+
+  useEffect(() => {
+    if (namespaceManuallyEdited) return;
+    setConfig((prev) => {
+      if (prev.namespace === suggestedNamespace) return prev;
+      return { ...prev, namespace: suggestedNamespace };
+    });
+  }, [namespaceManuallyEdited, suggestedNamespace]);
 
   const update = (field: string, value: string) => {
     if (field === "agentName") {
@@ -403,6 +474,9 @@ export default function DeployForm({ onDeployStarted }: Props) {
     }
     if (field === "agentDisplayName") {
       setDisplayNameManuallyEdited(true);
+    }
+    if (field === "namespace") {
+      setNamespaceManuallyEdited(true);
     }
     if (field === "agentSourceDir") {
       const inferredAgentName = inferAgentNameFromPath(value);
@@ -463,6 +537,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
 
       const body = {
         mode,
+        inferenceProvider,
         prefix: config.prefix,
         agentName: config.agentName,
         agentDisplayName: config.agentDisplayName || config.agentName,
@@ -517,7 +592,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
         gcpServiceAccountJson: vertexEnabled ? config.gcpServiceAccountJson || undefined : undefined,
         gcpServiceAccountPath: vertexEnabled ? config.gcpServiceAccountPath || undefined : undefined,
         litellmProxy: vertexEnabled ? config.litellmProxy : undefined,
-        namespace: config.namespace || undefined,
+        namespace: (config.namespace || suggestedNamespace) || undefined,
         sshHost: config.sshHost || undefined,
         sshUser: config.sshUser || undefined,
         agentSourceDir: config.agentSourceDir || undefined,
@@ -557,6 +632,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
       `OPENCLAW_PORT=${config.port}`,
       `AGENT_SOURCE_DIR=${config.agentSourceDir}`,
       "",
+      `INFERENCE_PROVIDER=${inferenceProvider}`,
       `ANTHROPIC_API_KEY=${config.anthropicApiKey}`,
       `OPENAI_API_KEY=${config.openaiApiKey}`,
       `MODEL_ENDPOINT=${config.modelEndpoint}`,
@@ -598,7 +674,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
       `OTEL_ENDPOINT=${config.otelEndpoint}`,
       `OTEL_EXPERIMENT_ID=${config.otelExperimentId}`,
       "",
-      `K8S_NAMESPACE=${config.namespace}`,
+      `K8S_NAMESPACE=${config.namespace || suggestedNamespace}`,
     ];
 
     if (config.sandboxSshCertificate && !config.sandboxSshCertificatePath) {
@@ -629,9 +705,12 @@ export default function DeployForm({ onDeployStarted }: Props) {
     || config.sandboxToolAllowAutomation
     || config.sandboxToolAllowMessaging;
 
+  const agentNameError = validateAgentName(config.agentName);
   const validationErrors: string[] = [];
   if (!config.agentName.trim()) {
     validationErrors.push("Agent Name is required.");
+  } else if (agentNameError) {
+    validationErrors.push(agentNameError);
   }
   if (config.sandboxEnabled && !config.sandboxSshTarget.trim()) {
     validationErrors.push("SSH Target is required when the SSH sandbox backend is enabled.");
@@ -639,7 +718,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
   if (config.sandboxEnabled && !hasSandboxToolSelection) {
     validationErrors.push("Select at least one sandbox tool group or disable custom sandbox tool baseline.");
   }
-  if (mode === "kubernetes" && !defaults?.k8sAvailable) {
+  if (isClusterMode && !defaults?.k8sAvailable) {
     validationErrors.push("No Kubernetes cluster detected.");
   }
 
@@ -649,7 +728,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
     <div>
       {/* Mode selector */}
       <div className="mode-grid">
-        {deployers.map((m) => {
+        {displayedDeployers.map((m) => {
           const isSelected = mode === m.mode;
           return (
             <div
@@ -670,7 +749,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
         })}
       </div>
 
-      {mode === "kubernetes" && (
+      {isClusterMode && (
         <div className="card" style={{ marginBottom: "1rem", padding: "0.75rem 1rem" }}>
           {defaults?.k8sAvailable ? (
             <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
@@ -695,9 +774,13 @@ export default function DeployForm({ onDeployStarted }: Props) {
                 onChange={(e) => {
                   const cfg = savedConfigs.find((c) => c.name === e.target.value);
                   if (cfg) {
-                    setMode(cfg.type === "k8s" ? "kubernetes" : "local");
+                    setMode(cfg.type === "k8s"
+                      ? (defaults?.isOpenShift ? "openshift" : "kubernetes")
+                      : "local");
                     applyVars(cfg.vars);
-                    setLoadedConfigLabel(`${cfg.name} (${cfg.type === "k8s" ? "K8s" : "Local"})`);
+                    setLoadedConfigLabel(`${cfg.name} (${cfg.type === "k8s"
+                      ? (defaults?.isOpenShift ? "OpenShift" : "K8s")
+                      : "Local"})`);
                     setAutoLoadedEnvDir(null);
                   }
                 }}
@@ -743,8 +826,13 @@ export default function DeployForm({ onDeployStarted }: Props) {
               placeholder="e.g., lynx"
               value={config.agentName}
               onChange={(e) => update("agentName", e.target.value)}
+              style={agentNameError ? { borderColor: "#e74c3c" } : undefined}
             />
-            <div className="hint">Your agent's identity</div>
+            {agentNameError ? (
+              <div className="hint" style={{ color: "#e74c3c" }}>{agentNameError}</div>
+            ) : (
+              <div className="hint">Lowercase letters, numbers, and hyphens (e.g., my-agent)</div>
+            )}
           </div>
           <div className="form-group">
             <label>Owner Prefix <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>(optional)</span></label>
@@ -793,12 +881,12 @@ export default function DeployForm({ onDeployStarted }: Props) {
           <label>Container Image</label>
           <input
             type="text"
-            placeholder="ghcr.io/openclaw/openclaw:latest"
+            placeholder={defaultImageForProvider(inferenceProvider)}
             value={config.image}
             onChange={(e) => update("image", e.target.value)}
           />
           <div className="hint">
-            Leave blank for the default image (ghcr.io/openclaw/openclaw:latest).
+            Leave blank for the default image (<code>{defaultImageForProvider(inferenceProvider)}</code>).
           </div>
         </div>
 
@@ -1065,19 +1153,46 @@ export default function DeployForm({ onDeployStarted }: Props) {
           </>
         )}
 
-        {mode === "kubernetes" && (
+        {isClusterMode && (
           <div className="form-group">
-            <label>Namespace</label>
+            <label>Project / Namespace</label>
             <input
               type="text"
+              aria-label="Project / Namespace"
               autoComplete="off"
-              placeholder={`${config.prefix || defaults?.prefix || "user"}-${config.agentName || "agent"}-openclaw`}
+              placeholder={suggestedNamespace}
               value={config.namespace || ""}
-              onChange={(e) => setConfig((prev) => ({ ...prev, namespace: e.target.value }))}
+              onChange={(e) => update("namespace", e.target.value)}
             />
             <div className="hint">
-              Leave blank to auto-generate (e.g., <code>{config.prefix || defaults?.prefix || "user"}-{config.agentName || "agent"}-openclaw</code>)
+              {defaults?.isOpenShift && defaults.k8sNamespace ? (
+                <>
+                  Defaults to your current <code>oc</code> project: <code>{defaults.k8sNamespace}</code>.
+                  Name-only pattern if you create namespaces yourself: <code>{derivedNamespace}</code>.
+                </>
+              ) : (
+                <>
+                  Auto-filled from owner prefix and agent name: <code>{derivedNamespace}</code>.
+                </>
+              )}
             </div>
+            {defaults?.isOpenShift && defaults.k8sNamespace ? (
+              <div className="hint" style={{ marginTop: "0.35rem" }}>
+                Prefer the generated name{" "}
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ padding: "0.15rem 0.5rem", fontSize: "0.85rem" }}
+                  onClick={() => {
+                    setNamespaceManuallyEdited(true);
+                    setConfig((prev) => ({ ...prev, namespace: derivedNamespace }));
+                  }}
+                >
+                  Use <code>{derivedNamespace}</code>
+                </button>{" "}
+                (only if you can create that project).
+              </div>
+            ) : null}
           </div>
         )}
 

@@ -7,7 +7,7 @@ import type {
   LogCallback,
 } from "../../../src/server/deployers/types.js";
 import { namespaceName } from "../../../src/server/deployers/k8s-helpers.js";
-import { coreApi, appsApi, loadKubeConfig } from "../../../src/server/services/k8s.js";
+import { coreApi, appsApi, k8sApiHttpCode } from "../../../src/server/services/k8s.js";
 import { oauthServiceAccount, oauthConfigSecret, oauthProxyContainer } from "./oauth-proxy.js";
 import { applyRoute, getRouteUrl, deleteRoute } from "./route.js";
 
@@ -76,16 +76,33 @@ export class OpenShiftDeployer implements Deployer {
     // and OpenShift-specific pre-requisites
     try {
       await core.readNamespace({ name: ns });
-    } catch {
-      log(`Creating namespace ${ns}...`);
-      await core.createNamespace({
-        body: {
-          apiVersion: "v1",
-          kind: "Namespace",
-          metadata: { name: ns, labels: { "app.kubernetes.io/managed-by": "openclaw-installer" } },
-        },
-      });
-      log(`Namespace ${ns} created`);
+    } catch (e: unknown) {
+      const status = k8sApiHttpCode(e);
+      if (status === 403) {
+        log(`Cannot verify project "${ns}" at cluster scope (forbidden) — using it as the deploy target. Ensure it already exists and you have admin/edit there.`);
+      } else if (status === 404) {
+        log(`Creating namespace ${ns}...`);
+        try {
+          await core.createNamespace({
+            body: {
+              apiVersion: "v1",
+              kind: "Namespace",
+              metadata: { name: ns, labels: { "app.kubernetes.io/managed-by": "openclaw-installer" } },
+            },
+          });
+          log(`Namespace ${ns} created`);
+        } catch (createErr: unknown) {
+          if (k8sApiHttpCode(createErr) === 403) {
+            throw new Error(
+              `Cannot create namespace "${ns}": forbidden. Create the project first (for example: oc new-project ${ns}) and set it in the deploy form, or ask a cluster admin.`,
+              { cause: createErr },
+            );
+          }
+          throw createErr;
+        }
+      } else {
+        throw e;
+      }
     }
 
     // ServiceAccount with OAuth redirect annotation

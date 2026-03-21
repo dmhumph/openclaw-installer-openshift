@@ -3,8 +3,11 @@ import { v4 as uuid } from "uuid";
 import { readFileSync, existsSync } from "node:fs";
 import { userInfo } from "node:os";
 import type { DeployConfig } from "../deployers/types.js";
+import { validateAgentName } from "../../shared/validate-agent-name.js";
 import { detectGcpDefaults, defaultVertexLocation } from "../services/gcp.js";
+import { namespaceName } from "../deployers/k8s-helpers.js";
 import { registry } from "../deployers/registry.js";
+import { k8sApiHttpCode } from "../services/k8s.js";
 import { createLogCallback, sendStatus } from "../ws.js";
 
 const router = Router();
@@ -39,6 +42,12 @@ router.post("/", async (req, res) => {
     return readFileSync(filePath, "utf-8");
   };
 
+  const agentNameError = validateAgentName(config.agentName);
+  if (agentNameError) {
+    res.status(400).json({ error: `Invalid agent name: ${agentNameError}` });
+    return;
+  }
+
   // Default prefix to OS username
   if (!config.prefix) {
     config.prefix = process.env.OPENCLAW_PREFIX || userInfo().username;
@@ -48,13 +57,25 @@ router.post("/", async (req, res) => {
   if (!config.image && process.env.OPENCLAW_IMAGE) {
     config.image = process.env.OPENCLAW_IMAGE;
   }
-  if (!config.anthropicApiKey && process.env.ANTHROPIC_API_KEY) {
+  if (
+    config.inferenceProvider === "anthropic"
+    && !config.anthropicApiKey
+    && process.env.ANTHROPIC_API_KEY
+  ) {
     config.anthropicApiKey = process.env.ANTHROPIC_API_KEY;
   }
-  if (!config.openaiApiKey && process.env.OPENAI_API_KEY) {
+  if (
+    (config.inferenceProvider === "openai" || config.inferenceProvider === "custom-endpoint")
+    && !config.openaiApiKey
+    && process.env.OPENAI_API_KEY
+  ) {
     config.openaiApiKey = process.env.OPENAI_API_KEY;
   }
-  if (!config.modelEndpoint && process.env.MODEL_ENDPOINT) {
+  if (
+    config.inferenceProvider === "custom-endpoint"
+    && !config.modelEndpoint
+    && process.env.MODEL_ENDPOINT
+  ) {
     config.modelEndpoint = process.env.MODEL_ENDPOINT;
   }
   if (config.telegramEnabled) {
@@ -70,6 +91,18 @@ router.post("/", async (req, res) => {
     config.vertexProvider = (process.env.VERTEX_PROVIDER as "google" | "anthropic") || "anthropic";
     config.googleCloudProject = config.googleCloudProject || process.env.GOOGLE_CLOUD_PROJECT || "";
     config.googleCloudLocation = config.googleCloudLocation || process.env.GOOGLE_CLOUD_LOCATION || "";
+  }
+
+  if (!config.inferenceProvider) {
+    if (config.vertexEnabled) {
+      config.inferenceProvider = config.vertexProvider === "google" ? "vertex-google" : "vertex-anthropic";
+    } else if (config.modelEndpoint) {
+      config.inferenceProvider = "custom-endpoint";
+    } else if (config.anthropicApiKey) {
+      config.inferenceProvider = "anthropic";
+    } else if (config.openaiApiKey) {
+      config.inferenceProvider = "openai";
+    }
   }
 
   // Resolve SA JSON from path if provided (and no inline JSON)
@@ -149,7 +182,11 @@ router.post("/", async (req, res) => {
     sendStatus(deployId, "running");
     log("Deployment complete!");
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    let message = err instanceof Error ? err.message : String(err);
+    if (config.mode === "kubernetes" && k8sApiHttpCode(err) === 403) {
+      const ns = namespaceName(config);
+      message += ` If you only have access to a pre-created OpenShift project, set "Project / Namespace" to that exact name. This deploy used namespace "${ns}" (from the form, or <owner prefix>-<agent name>-openclaw when the field is empty).`;
+    }
     log(`ERROR: ${message}`);
     sendStatus(deployId, "failed");
   }

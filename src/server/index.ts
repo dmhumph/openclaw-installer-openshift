@@ -7,7 +7,7 @@ import deployRoutes from "./routes/deploy.js";
 import statusRoutes from "./routes/status.js";
 import agentsRoutes from "./routes/agents.js";
 import { detectRuntime } from "./services/container.js";
-import { isClusterReachable, currentContext } from "./services/k8s.js";
+import { isClusterReachable, currentContext, currentNamespace } from "./services/k8s.js";
 import { stopAllK8sPortForwards } from "./services/k8s-port-forward.js";
 import { detectGcpDefaults } from "./services/gcp.js";
 import { readdir, readFile } from "node:fs/promises";
@@ -63,6 +63,8 @@ app.get("/api/health", async (_req, res) => {
     containerRuntime: runtime,
     k8sAvailable: k8sReachable,
     k8sContext: k8sReachable ? currentContext() : "",
+    k8sNamespace: k8sReachable ? currentNamespace() : "",
+    isOpenShift: detected.some((d) => d.mode === "openshift"),
     version: "0.1.0",
     deployers: registry.list().map((reg) => ({
       mode: reg.mode,

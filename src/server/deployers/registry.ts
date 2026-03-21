@@ -1,3 +1,4 @@
+import console from "node:console";
 import type { Deployer } from "./types.js";
 
 export interface DeployerRegistration {
