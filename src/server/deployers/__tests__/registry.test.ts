@@ -96,4 +96,16 @@ describe("DeployerRegistry", () => {
     expect(low?.priority).toBe(-1);
     expect(high?.priority).toBe(10);
   });
+
+  it("preserves builtIn flag in registrations", () => {
+    const reg = new DeployerRegistry();
+    reg.register({ mode: "core", title: "Core", description: "Built-in", deployer: stubDeployer(), builtIn: true });
+    reg.register({ mode: "plugin", title: "Plugin", description: "External", deployer: stubDeployer() });
+
+    const list = reg.list();
+    const core = list.find((r) => r.mode === "core");
+    const plugin = list.find((r) => r.mode === "plugin");
+    expect(core?.builtIn).toBe(true);
+    expect(plugin?.builtIn).toBeUndefined();
+  });
 });

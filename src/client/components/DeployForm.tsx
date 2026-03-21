@@ -9,6 +9,7 @@ interface DeployerInfo {
   description: string;
   available: boolean;
   priority: number;
+  builtIn: boolean;
 }
 
 interface Props {
@@ -209,9 +210,14 @@ export default function DeployForm({ onDeployStarted }: Props) {
   const isClusterMode = mode === "kubernetes" || mode === "openshift";
   const isVertex = inferenceProvider === "vertex-anthropic" || inferenceProvider === "vertex-google";
   const displayedDeployers = useMemo(
-    () => (defaults?.isOpenShift
-      ? deployers.filter((deployer) => deployer.mode !== "kubernetes")
-      : deployers),
+    () => {
+      // Hide unavailable plugin deployers (issue #10) — only built-in
+      // deployers should appear as disabled; plugin deployers are hidden entirely.
+      const visible = deployers.filter((d) => d.builtIn || d.available);
+      return defaults?.isOpenShift
+        ? visible.filter((d) => d.mode !== "kubernetes")
+        : visible;
+    },
     [defaults?.isOpenShift, deployers],
   );
 

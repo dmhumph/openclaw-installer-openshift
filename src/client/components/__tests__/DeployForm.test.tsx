@@ -1,0 +1,71 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
+import DeployForm from "../DeployForm";
+
+// Stub fetch for /api/health to return deployer data
+function mockHealthResponse(deployers: Array<{ mode: string; title: string; description: string; available: boolean; priority: number; builtIn: boolean }>, overrides: Record<string, unknown> = {}) {
+  return vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      status: "ok",
+      containerRuntime: "podman",
+      k8sAvailable: false,
+      k8sContext: "",
+      k8sNamespace: "",
+      isOpenShift: false,
+      version: "0.1.0",
+      deployers,
+      defaults: {
+        hasAnthropicKey: true,
+        hasOpenaiKey: false,
+        hasTelegramToken: false,
+        telegramAllowFrom: "",
+        modelEndpoint: "",
+        prefix: "testuser",
+        image: "",
+      },
+      ...overrides,
+    }),
+  });
+}
+
+describe("DeployForm deployer visibility (issue #10)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("hides unavailable plugin deployers", async () => {
+    global.fetch = mockHealthResponse([
+      { mode: "local", title: "This Machine", description: "Run locally", available: true, priority: 0, builtIn: true },
+      { mode: "kubernetes", title: "Kubernetes", description: "Deploy to K8s", available: false, priority: 0, builtIn: true },
+      { mode: "openshift", title: "OpenShift", description: "Deploy to OpenShift", available: false, priority: 10, builtIn: false },
+    ]);
+
+    render(<DeployForm onDeployStarted={() => {}} />);
+
+    // Wait for the health fetch to resolve and deployers to render
+    const localCard = await screen.findByText("This Machine");
+    expect(localCard).toBeTruthy();
+
+    // Built-in kubernetes should still appear even though unavailable
+    expect(screen.getByText("Kubernetes")).toBeTruthy();
+
+    // Plugin deployer (openshift) should be hidden when unavailable
+    expect(screen.queryByText("OpenShift")).toBeNull();
+  });
+
+  it("shows available plugin deployers", async () => {
+    global.fetch = mockHealthResponse([
+      { mode: "local", title: "This Machine", description: "Run locally", available: true, priority: 0, builtIn: true },
+      { mode: "openshift", title: "OpenShift", description: "Deploy to OpenShift", available: true, priority: 10, builtIn: false },
+    ]);
+
+    render(<DeployForm onDeployStarted={() => {}} />);
+
+    const localCard = await screen.findByText("This Machine");
+    expect(localCard).toBeTruthy();
+
+    // Available plugin deployer should be visible
+    expect(screen.getByText("OpenShift")).toBeTruthy();
+  });
+});

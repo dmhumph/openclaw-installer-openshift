@@ -8,6 +8,7 @@ export interface DeployerRegistration {
   deployer: Deployer;
   detect?: () => Promise<boolean>;
   priority?: number;
+  builtIn?: boolean;
 }
 
 export interface InstallerPlugin {

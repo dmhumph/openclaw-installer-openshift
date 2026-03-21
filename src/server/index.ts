@@ -26,6 +26,7 @@ registry.register({
   deployer: new LocalDeployer(),
   detect: async () => !!(await detectRuntime()),
   priority: 0,
+  builtIn: true,
 });
 registry.register({
   mode: "kubernetes",
@@ -34,6 +35,7 @@ registry.register({
   deployer: new KubernetesDeployer(),
   detect: async () => isClusterReachable(),
   priority: 0,
+  builtIn: true,
 });
 
 // Load external plugins
@@ -72,6 +74,7 @@ app.get("/api/health", async (_req, res) => {
       description: reg.description,
       available: detected.some((d) => d.mode === reg.mode),
       priority: reg.priority ?? 0,
+      builtIn: reg.builtIn ?? false,
     })),
     defaults: {
       hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
