@@ -313,6 +313,10 @@ export class KubernetesDeployer implements Deployer {
         openaiApiKey: config.openaiApiKey ? "(set)" : undefined,
         gcpServiceAccountJson: config.gcpServiceAccountJson ? "(set)" : undefined,
         telegramBotToken: config.telegramBotToken ? "(set)" : undefined,
+        secretsProvidersJson: config.secretsProvidersJson,
+        anthropicApiKeyRef: config.anthropicApiKeyRef,
+        openaiApiKeyRef: config.openaiApiKeyRef,
+        telegramBotTokenRef: config.telegramBotTokenRef,
       };
       writeFileSync(
         join(configDir, "deploy-config.json"),

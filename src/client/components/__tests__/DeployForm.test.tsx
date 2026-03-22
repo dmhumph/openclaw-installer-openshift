@@ -140,4 +140,23 @@ describe("DeployForm agent name validation (issue #7)", () => {
       expect(screen.getAllByText("Agent name can only contain lowercase letters, numbers, and hyphens").length).toBeGreaterThan(0);
     });
   });
+
+  it("validates secret providers JSON when SecretRef mode is enabled", async () => {
+    global.fetch = mockHealthResponse([
+      { mode: "local", title: "This Machine", description: "Run locally", available: true, priority: 0, builtIn: true },
+    ]);
+
+    render(<DeployForm onDeployStarted={() => {}} />);
+
+    await screen.findAllByRole("button", { name: /deploy openclaw/i });
+
+    fireEvent.change(screen.getAllByPlaceholderText("e.g., lynx")[0], { target: { value: "lynx" } });
+    fireEvent.change(screen.getAllByRole("textbox").find((el) => el.tagName === "TEXTAREA") as HTMLTextAreaElement, {
+      target: { value: "{not json" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Secret providers JSON is invalid.")).toBeTruthy();
+    });
+  });
 });
