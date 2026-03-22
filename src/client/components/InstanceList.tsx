@@ -30,7 +30,7 @@ interface Instance {
   pods?: PodInfo[];
 }
 
-type ExpandedPanel = "token" | "command" | "logs" | null;
+type ExpandedPanel = "connection" | "command" | "logs" | null;
 
 function StatusBadge({ inst, isActing }: { inst: Instance; isActing: boolean }) {
   const badgeColor: Record<string, string> = {
@@ -204,11 +204,11 @@ export default function InstanceList() {
       return;
     }
 
-    const endpoint = panel === "token" ? "token" : panel === "logs" ? "logs" : "command";
+    const endpoint = panel === "connection" ? "token" : panel === "logs" ? "logs" : "command";
     try {
       const res = await fetch(`/api/instances/${id}/${endpoint}`);
       const data = await res.json();
-      const value = panel === "token" ? data.token : panel === "logs" ? data.logs : data.command;
+      const value = panel === "connection" ? data.token : panel === "logs" ? data.logs : data.command;
       if (value) {
         setPanelData((prev) => ({ ...prev, [`${id}-${panel}`]: value }));
         setExpanded((prev) => ({ ...prev, [id]: panel }));
@@ -346,9 +346,9 @@ export default function InstanceList() {
                   <>
                     <button
                       className="btn btn-ghost"
-                      onClick={() => togglePanel(inst.id, "token")}
+                      onClick={() => togglePanel(inst.id, "connection")}
                     >
-                      {activePanel === "token" ? "Hide" : "Token"}
+                      {activePanel === "connection" ? "Hide" : "Connection Info"}
                     </button>
                     <button
                       className="btn btn-ghost"
@@ -411,7 +411,50 @@ export default function InstanceList() {
               </div>
             </div>
             <K8sProgress inst={inst} />
-            {activePanel && panelContent && (
+            {activePanel === "connection" && panelContent && inst.url && (
+              <div
+                style={{
+                  padding: "0 1rem 1rem",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.5rem",
+                }}
+              >
+                {[
+                  { label: "URL", value: `${inst.url}?session=main#token=${encodeURIComponent(panelContent)}` },
+                  { label: "Token", value: panelContent },
+                ].map(({ label, value }) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", minWidth: "3rem" }}>
+                      {label}
+                    </span>
+                    <code
+                      style={{
+                        flex: 1,
+                        padding: "0.35rem 0.75rem",
+                        background: "var(--bg-primary)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--radius-sm)",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "0.8rem",
+                        color: "var(--text-secondary)",
+                        wordBreak: "break-all",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {value}
+                    </code>
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => handleCopy(value)}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {activePanel && activePanel !== "connection" && panelContent && (
               <div
                 style={{
                   padding: "0 1rem 1rem",

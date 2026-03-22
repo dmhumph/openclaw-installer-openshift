@@ -96,7 +96,7 @@ describe("InstanceList", () => {
     expect(screen.getByText("running")).toBeInTheDocument();
     expect(screen.getByText("http://localhost:18789")).toBeInTheDocument();
     // Running instances show panel and lifecycle buttons
-    expect(screen.getByText("Token")).toBeInTheDocument();
+    expect(screen.getByText("Connection Info")).toBeInTheDocument();
     expect(screen.getByText("Command")).toBeInTheDocument();
     expect(screen.getByText("Logs")).toBeInTheDocument();
     expect(screen.getByText("Stop")).toBeInTheDocument();
@@ -110,7 +110,7 @@ describe("InstanceList", () => {
     await waitFor(() => {
       expect(screen.getByText("Start")).toBeInTheDocument();
     });
-    expect(screen.queryByText("Token")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connection Info")).not.toBeInTheDocument();
     expect(screen.queryByText("Command")).not.toBeInTheDocument();
     expect(screen.queryByText("Logs")).not.toBeInTheDocument();
   });
@@ -145,7 +145,7 @@ describe("InstanceList", () => {
     expect(screen.getByRole("button", { name: /delete data/i })).not.toBeDisabled();
   });
 
-  it("toggles token panel on button click", async () => {
+  it("toggles connection info panel on button click", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     globalThis.fetch = vi.fn((url: string) => {
       if (url === "/api/health") {
@@ -162,12 +162,14 @@ describe("InstanceList", () => {
 
     render(<InstanceList />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /token/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /connection info/i })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: /token/i }));
+    await user.click(screen.getByRole("button", { name: /connection info/i }));
     await waitFor(() => {
+      // Connection info shows both URL with token and raw token
       expect(screen.getByText("secret-token-123")).toBeInTheDocument();
+      expect(screen.getByText(/http:\/\/localhost:18789\?session=main#token=secret-token-123/)).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: /^hide$/i })).toBeInTheDocument();
   });
