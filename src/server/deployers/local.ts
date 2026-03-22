@@ -968,8 +968,8 @@ something that requires the user's attention.`;
     const token = await this.readSavedToken(name);
     const url = `http://localhost:${port}`;
     if (token) {
-      log(`OpenClaw running at ${url}`);
-      log("Use the Open action from the Instances page to open with the saved token");
+      // Show URL with token so users can copy-paste directly (fix for #29)
+      log(`OpenClaw running at ${url}#token=${encodeURIComponent(token)}`);
     } else {
       log(`OpenClaw running at ${url}`);
     }
@@ -1181,8 +1181,8 @@ something that requires the user's attention.`;
     const token = await this.readSavedToken(name);
     const url = `http://localhost:${port}`;
     if (token) {
-      log(`OpenClaw running at ${url}`);
-      log("Use the Open action from the Instances page to open with the saved token");
+      // Show URL with token so users can copy-paste directly (fix for #29)
+      log(`OpenClaw running at ${url}#token=${encodeURIComponent(token)}`);
     } else {
       log(`OpenClaw running at ${url}`);
     }
