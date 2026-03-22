@@ -90,6 +90,12 @@ router.post("/", async (req, res) => {
     });
     return;
   }
+  if (config.sandboxEnabled && config.sandboxBackend === "ssh" && !config.sandboxSshIdentityPath?.trim()) {
+    res.status(400).json({
+      error: "SSH sandbox requires sandboxSshIdentityPath",
+    });
+    return;
+  }
 
   const resolveTextFile = (filePath: string, label: string): string | null => {
     if (!existsSync(filePath)) {

@@ -853,6 +853,9 @@ export default function DeployForm({ onDeployStarted }: Props) {
   if (config.sandboxEnabled && !config.sandboxSshTarget.trim()) {
     validationErrors.push("SSH Target is required when the SSH sandbox backend is enabled.");
   }
+  if (config.sandboxEnabled && !config.sandboxSshIdentityPath.trim()) {
+    validationErrors.push("SSH Private Key is required when the SSH sandbox backend is enabled.");
+  }
   if (config.sandboxEnabled && !hasSandboxToolSelection) {
     validationErrors.push("Select at least one sandbox tool group or disable custom sandbox tool baseline.");
   }
@@ -1803,12 +1806,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
             </div>
 
             <div className="form-group">
-              <label>
-                SSH Private Key
-                <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>
-                  {" "}(optional)
-                </span>
-              </label>
+              <label>SSH Private Key</label>
               <input
                 type="text"
                 placeholder="/path/to/id_ed25519"
