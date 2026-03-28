@@ -89,6 +89,8 @@ export interface DeployConfig {
   // Kubernetes mode
   namespace?: string;
   withA2a?: boolean;
+  a2aRealm?: string;
+  a2aKeycloakNamespace?: string;
   // SSH mode
   sshHost?: string;
   sshUser?: string;

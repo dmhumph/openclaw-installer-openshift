@@ -168,20 +168,43 @@ export function secretManifest(ns: string, config: DeployConfig, gatewayToken: s
   };
 }
 
-export function serviceManifest(ns: string): k8s.V1Service {
+export function serviceManifest(ns: string, config: DeployConfig): k8s.V1Service {
+  const withA2a = Boolean(config.withA2a);
   return {
     apiVersion: "v1",
     kind: "Service",
     metadata: {
       name: "openclaw",
       namespace: ns,
-      labels: { app: "openclaw" },
+      labels: {
+        app: "openclaw",
+        ...(withA2a
+          ? {
+              "kagenti.io/type": "agent",
+              "kagenti.io/protocol": "a2a",
+              "app.kubernetes.io/name": "openclaw",
+            }
+          : {}),
+      },
+      annotations: {
+        ...(withA2a ? { "kagenti.io/description": "OpenClaw AI Agent Gateway" } : {}),
+      },
     },
     spec: {
       type: "ClusterIP",
       selector: { app: "openclaw" },
       ports: [
+        ...(withA2a
+          ? [
+              { name: "a2a", port: 8080, targetPort: "a2a" as unknown as k8s.IntOrString, protocol: "TCP" as const },
+            ]
+          : []),
         { name: "gateway", port: 18789, targetPort: 18789 as unknown as k8s.IntOrString, protocol: "TCP" },
+        ...(withA2a
+          ? [
+              { name: "bridge", port: 18790, targetPort: 18790 as unknown as k8s.IntOrString, protocol: "TCP" as const },
+            ]
+          : []),
       ],
     },
   };
@@ -211,6 +234,7 @@ export function deploymentManifest(
 
   const useProxy = shouldUseLitellmProxy(config);
   const useOtel = shouldUseOtel(config);
+  const withA2a = Boolean(config.withA2a);
   // Direct sidecar only when OTEL is enabled and operator is NOT handling it
   const useOtelDirect = useOtel && !otelViaOperator;
 
@@ -289,6 +313,15 @@ echo "Config initialized"
         "app.kubernetes.io/managed-by": "openclaw-installer",
         "openclaw.prefix": (config.prefix || "openclaw").toLowerCase(),
         "openclaw.agent": config.agentName.toLowerCase(),
+        ...(withA2a
+          ? {
+              "kagenti.io/type": "agent",
+              "kagenti.io/protocol": "a2a",
+              "kagenti.io/framework": "OpenClaw",
+              "app.kubernetes.io/name": "openclaw",
+              "app.kubernetes.io/component": "agent",
+            }
+          : {}),
       },
     },
     spec: {
@@ -297,14 +330,31 @@ echo "Config initialized"
       strategy: { type: "Recreate" },
       template: {
         metadata: {
-          labels: { app: "openclaw" },
+          labels: {
+            app: "openclaw",
+            ...(withA2a
+              ? {
+                  "kagenti.io/type": "agent",
+                  "kagenti.io/protocol": "a2a",
+                  "kagenti.io/inject": "enabled",
+                }
+              : {}),
+          },
           annotations: {
             "openclaw.io/restart-at": new Date().toISOString(),
             // When OTel Operator is available, it injects the collector sidecar
             ...(otelViaOperator ? { "sidecar.opentelemetry.io/inject": "openclaw-sidecar" } : {}),
+            ...(withA2a
+              ? {
+                  "kagenti.io/description": "OpenClaw AI Agent Gateway",
+                  "kagenti.io/outbound-ports-exclude": "443,4317,4318,18789",
+                  "kagenti.io/inbound-ports-exclude": "8080,8443,18789,18790",
+                }
+              : {}),
           },
         },
         spec: {
+          ...(withA2a ? { serviceAccountName: "openclaw-oauth-proxy" } : {}),
           initContainers: [
             {
               name: "init-config",
@@ -334,7 +384,10 @@ echo "Config initialized"
                 "node", "dist/index.js", "gateway", "run",
                 "--bind", "lan", "--port", "18789",
               ],
-              ports: [{ name: "gateway", containerPort: 18789, protocol: "TCP" }],
+              ports: [
+                { name: "gateway", containerPort: 18789, protocol: "TCP" },
+                ...(withA2a ? [{ name: "bridge", containerPort: 18790, protocol: "TCP" as const }] : []),
+              ],
               env: envVars,
               resources: {
                 requests: { memory: "1Gi", cpu: "250m" },
@@ -434,6 +487,33 @@ echo "Config initialized"
                 capabilities: { drop: ["ALL"] },
               },
             }] : []),
+            ...(withA2a ? [{
+              name: "agent-card",
+              image: "registry.redhat.io/ubi9:latest",
+              command: ["python3", "-u", "/scripts/a2a-bridge.py"],
+              ports: [{ name: "a2a", containerPort: 8080, protocol: "TCP" as const }],
+              env: [
+                {
+                  name: "GATEWAY_TOKEN",
+                  valueFrom: { secretKeyRef: { name: "openclaw-secrets", key: "OPENCLAW_GATEWAY_TOKEN" } },
+                },
+                { name: "GATEWAY_URL", value: "http://localhost:18789" },
+                { name: "AGENT_ID", value: "" },
+              ],
+              volumeMounts: [
+                { name: "agent-card-data", mountPath: "/srv/.well-known", readOnly: true },
+                { name: "a2a-bridge-script", mountPath: "/scripts", readOnly: true },
+              ],
+              resources: {
+                requests: { memory: "32Mi", cpu: "10m" },
+                limits: { memory: "64Mi", cpu: "50m" },
+              },
+              securityContext: {
+                allowPrivilegeEscalation: false,
+                readOnlyRootFilesystem: true,
+                capabilities: { drop: ["ALL"] },
+              },
+            }] : []),
           ],
           volumes: [
             { name: "openclaw-home", persistentVolumeClaim: { claimName: "openclaw-home-pvc" } },
@@ -478,6 +558,12 @@ echo "Config initialized"
               : []),
             ...(useOtelDirect
               ? [{ name: "otel-config", configMap: { name: "otel-collector-config" } }]
+              : []),
+            ...(withA2a
+              ? [
+                  { name: "agent-card-data", configMap: { name: "openclaw-agent-card" } },
+                  { name: "a2a-bridge-script", configMap: { name: "a2a-bridge" } },
+                ]
               : []),
           ],
         },

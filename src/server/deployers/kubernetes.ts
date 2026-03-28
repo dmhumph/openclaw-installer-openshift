@@ -30,6 +30,21 @@ import {
   serviceManifest,
   deploymentManifest,
 } from "./k8s-manifests.js";
+import {
+  a2aBridgeConfigMapManifest,
+  a2aKeycloakNamespace,
+  a2aNamespacePatch,
+  a2aRealm,
+  a2aServiceAccountManifest,
+  agentCardDataConfigMapManifest,
+  agentCardManifest,
+  authbridgeConfigMapManifest,
+  builtInA2aSkillEntries,
+  envoyConfigMapManifest,
+  environmentsConfigMapManifest,
+  privilegedSccRoleBindingManifest,
+  spiffeHelperConfigMapManifest,
+} from "./k8s-a2a.js";
 import { shouldUseLitellmProxy, generateLitellmMasterKey, generateLitellmConfig } from "./litellm.js";
 import { shouldUseOtel, generateOtelConfig, generateOtelConfigObject } from "./otel.js";
 
@@ -114,12 +129,107 @@ export class KubernetesDeployer implements Deployer {
     // Load workspace files (prefers user-customized from ~/.openclaw/workspace-*)
     const { files: workspaceFiles } = loadWorkspaceFiles(config, log);
     const skillEntries = await loadTextTree(skillsDir()).catch(() => []);
+    const effectiveSkillEntries = config.withA2a ? builtInA2aSkillEntries(skillEntries) : skillEntries;
     const agentTreeEntries = await loadAgentSourceWorkspaceTree(config.agentSourceDir).catch(() => []);
     const cronJobsContent = loadAgentSourceCronJobs(config.agentSourceDir)
       ?? await readFile(cronJobsFile(), "utf8").catch(() => undefined);
 
     // 1. Namespace
     await applyNamespace(core, ns, log);
+    if (config.withA2a) {
+      log(`Labeling namespace ${ns} for Kagenti injection...`);
+      await core.patchNamespace(
+        { name: ns, body: a2aNamespacePatch(ns) },
+        k8s.setHeaderOptions("Content-Type", k8s.PatchStrategy.MergePatch),
+      );
+      log(`Namespace ${ns} labeled for Kagenti`);
+    }
+
+    if (config.withA2a && config.mode !== "openshift") {
+      const sa = a2aServiceAccountManifest(ns);
+      await applyResource(
+        () => core.readNamespacedServiceAccount({ name: "openclaw-oauth-proxy", namespace: ns }),
+        () => core.createNamespacedServiceAccount({ namespace: ns, body: sa }),
+        () => core.replaceNamespacedServiceAccount({ name: "openclaw-oauth-proxy", namespace: ns, body: sa }),
+        "ServiceAccount openclaw-oauth-proxy",
+        log,
+      );
+    }
+
+    if (config.withA2a && config.mode === "openshift") {
+      const rb = privilegedSccRoleBindingManifest(ns);
+      await applyResource(
+        () => loadKubeConfig().makeApiClient(k8s.RbacAuthorizationV1Api)
+          .readNamespacedRoleBinding({ name: rb.metadata!.name!, namespace: ns }),
+        () => loadKubeConfig().makeApiClient(k8s.RbacAuthorizationV1Api)
+          .createNamespacedRoleBinding({ namespace: ns, body: rb }),
+        () => loadKubeConfig().makeApiClient(k8s.RbacAuthorizationV1Api)
+          .replaceNamespacedRoleBinding({ name: rb.metadata!.name!, namespace: ns, body: rb }),
+        "RoleBinding openclaw-oauth-proxy-privileged-scc",
+        log,
+      );
+    }
+
+    if (config.withA2a) {
+      const realm = a2aRealm(config);
+      const kcNs = a2aKeycloakNamespace(config);
+      const internalKeycloakUrl = `http://keycloak-service.${kcNs}.svc.cluster.local:8080`;
+      let issuerBaseUrl = internalKeycloakUrl;
+      let adminUsername = "admin";
+      let adminPassword = "admin";
+
+      try {
+        const secret = await core.readNamespacedSecret({ name: "keycloak-initial-admin", namespace: kcNs });
+        const data = secret.data || {};
+        if (data.username) adminUsername = Buffer.from(data.username, "base64").toString("utf8");
+        if (data.password) adminPassword = Buffer.from(data.password, "base64").toString("utf8");
+      } catch {
+        log("Keycloak admin secret not found; falling back to default admin credentials in A2A config");
+      }
+
+      if (config.mode === "openshift") {
+        try {
+          const routesApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+          const route = await routesApi.getNamespacedCustomObject({
+            group: "route.openshift.io",
+            version: "v1",
+            namespace: kcNs,
+            plural: "routes",
+            name: "keycloak",
+          }) as { spec?: { host?: string } };
+          if (route.spec?.host) {
+            issuerBaseUrl = `https://${route.spec.host}`;
+          }
+        } catch {
+          log("Keycloak Route not found; using in-cluster issuer URL for A2A config");
+        }
+      }
+
+      const a2aConfigMaps: Array<{ name: string; body: k8s.V1ConfigMap }> = [
+        {
+          name: "ConfigMap environments",
+          body: environmentsConfigMapManifest(ns, realm, kcNs, adminUsername, adminPassword),
+        },
+        {
+          name: "ConfigMap authbridge-config",
+          body: authbridgeConfigMapManifest(ns, realm, issuerBaseUrl, kcNs),
+        },
+        { name: "ConfigMap envoy-config", body: envoyConfigMapManifest(ns) },
+        { name: "ConfigMap spiffe-helper-config", body: spiffeHelperConfigMapManifest(ns) },
+        { name: "ConfigMap openclaw-agent-card", body: agentCardDataConfigMapManifest(ns) },
+        { name: "ConfigMap a2a-bridge", body: a2aBridgeConfigMapManifest(ns) },
+      ];
+
+      for (const { name, body } of a2aConfigMaps) {
+        await applyResource(
+          () => core.readNamespacedConfigMap({ name: body.metadata!.name!, namespace: ns }),
+          () => core.createNamespacedConfigMap({ namespace: ns, body }),
+          () => core.replaceNamespacedConfigMap({ name: body.metadata!.name!, namespace: ns, body }),
+          name,
+          log,
+        );
+      }
+    }
 
     // 2. PVC (immutable — skip if exists)
     await applyResource(
@@ -159,7 +269,7 @@ export class KubernetesDeployer implements Deployer {
       log,
     );
 
-    const skillsCm = fileTreeConfigMapManifest(ns, "openclaw-skills", skillEntries);
+    const skillsCm = fileTreeConfigMapManifest(ns, "openclaw-skills", effectiveSkillEntries);
     await applyResource(
       () => core.readNamespacedConfigMap({ name: "openclaw-skills", namespace: ns }),
       () => core.createNamespacedConfigMap({ namespace: ns, body: skillsCm }),
@@ -277,7 +387,7 @@ export class KubernetesDeployer implements Deployer {
     }
 
     // 6. Service
-    const svc = serviceManifest(ns);
+    const svc = serviceManifest(ns, config);
     await applyResource(
       () => core.readNamespacedService({ name: "openclaw", namespace: ns }),
       () => core.createNamespacedService({ namespace: ns, body: svc }),
@@ -287,7 +397,7 @@ export class KubernetesDeployer implements Deployer {
     );
 
     // 7. Deployment
-    const dep = deploymentManifest(ns, config, otelViaOperator, skillEntries, agentTreeEntries, cronJobsContent);
+    const dep = deploymentManifest(ns, config, otelViaOperator, effectiveSkillEntries, agentTreeEntries, cronJobsContent);
     await applyResource(
       () => apps.readNamespacedDeployment({ name: "openclaw", namespace: ns }),
       () => apps.createNamespacedDeployment({ namespace: ns, body: dep }),
@@ -295,6 +405,30 @@ export class KubernetesDeployer implements Deployer {
       "Deployment openclaw",
       log,
     );
+
+    if (config.withA2a) {
+      const agentCard = agentCardManifest(ns);
+      const customApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+      const agentCardParams = {
+        group: "agent.kagenti.dev",
+        version: "v1alpha1",
+        namespace: ns,
+        plural: "agentcards",
+      };
+      try {
+        await customApi.getNamespacedCustomObject({ ...agentCardParams, name: "openclaw-agent-card" });
+        log("Updating AgentCard openclaw-agent-card...");
+        await customApi.replaceNamespacedCustomObject({
+          ...agentCardParams,
+          name: "openclaw-agent-card",
+          body: agentCard,
+        });
+      } catch {
+        log("Creating AgentCard openclaw-agent-card...");
+        await customApi.createNamespacedCustomObject({ ...agentCardParams, body: agentCard });
+      }
+      log("AgentCard openclaw-agent-card applied");
+    }
 
     const url = `(use: kubectl port-forward svc/openclaw 18789:18789 -n ${ns})`;
 
@@ -416,6 +550,7 @@ export class KubernetesDeployer implements Deployer {
     // Load workspace files from ~/.openclaw/workspace-*
     const { files: workspaceFiles, fromHost } = loadWorkspaceFiles(result.config, log);
     const skillEntries = await loadTextTree(skillsDir()).catch(() => []);
+    const effectiveSkillEntries = result.config.withA2a ? builtInA2aSkillEntries(skillEntries) : skillEntries;
     const agentTreeEntries = await loadAgentSourceWorkspaceTree(result.config.agentSourceDir).catch(() => []);
     const cronJobsContent = loadAgentSourceCronJobs(result.config.agentSourceDir)
       ?? await readFile(cronJobsFile(), "utf8").catch(() => undefined);
@@ -433,7 +568,7 @@ export class KubernetesDeployer implements Deployer {
       log,
     );
 
-    const skillsCm = fileTreeConfigMapManifest(ns, "openclaw-skills", skillEntries);
+    const skillsCm = fileTreeConfigMapManifest(ns, "openclaw-skills", effectiveSkillEntries);
     await applyResource(
       () => core.readNamespacedConfigMap({ name: "openclaw-skills", namespace: ns }),
       () => core.createNamespacedConfigMap({ namespace: ns, body: skillsCm }),
@@ -496,8 +631,8 @@ echo "Config initialized"
         path: "/spec/template/spec/volumes/3/configMap",
         value: {
           name: "openclaw-skills",
-          ...(skillEntries.length > 0
-            ? { items: skillEntries.map((entry) => ({ key: entry.key, path: entry.path })) }
+          ...(effectiveSkillEntries.length > 0
+            ? { items: effectiveSkillEntries.map((entry) => ({ key: entry.key, path: entry.path })) }
             : {}),
         },
       },
@@ -545,6 +680,7 @@ echo "Config initialized"
     const deletes: Array<{ name: string; fn: () => Promise<unknown> }> = [
       { name: "Deployment", fn: () => apps.deleteNamespacedDeployment({ name: "openclaw", namespace: ns }) },
       { name: "Service", fn: () => core.deleteNamespacedService({ name: "openclaw", namespace: ns }) },
+      { name: "ServiceAccount openclaw-oauth-proxy", fn: () => core.deleteNamespacedServiceAccount({ name: "openclaw-oauth-proxy", namespace: ns }) },
       { name: "Secret openclaw-secrets", fn: () => core.deleteNamespacedSecret({ name: "openclaw-secrets", namespace: ns }) },
       { name: "Secret gcp-sa", fn: () => core.deleteNamespacedSecret({ name: "gcp-sa", namespace: ns }) },
       { name: "ConfigMap openclaw-config", fn: () => core.deleteNamespacedConfigMap({ name: "openclaw-config", namespace: ns }) },
@@ -552,8 +688,22 @@ echo "Config initialized"
       { name: "ConfigMap openclaw-agent-tree", fn: () => core.deleteNamespacedConfigMap({ name: "openclaw-agent-tree", namespace: ns }) },
       { name: "ConfigMap openclaw-skills", fn: () => core.deleteNamespacedConfigMap({ name: "openclaw-skills", namespace: ns }) },
       { name: "ConfigMap openclaw-cron", fn: () => core.deleteNamespacedConfigMap({ name: "openclaw-cron", namespace: ns }) },
+      { name: "ConfigMap environments", fn: () => core.deleteNamespacedConfigMap({ name: "environments", namespace: ns }) },
+      { name: "ConfigMap authbridge-config", fn: () => core.deleteNamespacedConfigMap({ name: "authbridge-config", namespace: ns }) },
+      { name: "ConfigMap envoy-config", fn: () => core.deleteNamespacedConfigMap({ name: "envoy-config", namespace: ns }) },
+      { name: "ConfigMap spiffe-helper-config", fn: () => core.deleteNamespacedConfigMap({ name: "spiffe-helper-config", namespace: ns }) },
+      { name: "ConfigMap openclaw-agent-card", fn: () => core.deleteNamespacedConfigMap({ name: "openclaw-agent-card", namespace: ns }) },
+      { name: "ConfigMap a2a-bridge", fn: () => core.deleteNamespacedConfigMap({ name: "a2a-bridge", namespace: ns }) },
       { name: "ConfigMap litellm-config", fn: () => core.deleteNamespacedConfigMap({ name: "litellm-config", namespace: ns }) },
       { name: "ConfigMap otel-collector-config", fn: () => core.deleteNamespacedConfigMap({ name: "otel-collector-config", namespace: ns }) },
+      { name: "RoleBinding openclaw-oauth-proxy-privileged-scc", fn: () => loadKubeConfig().makeApiClient(k8s.RbacAuthorizationV1Api).deleteNamespacedRoleBinding({ name: "openclaw-oauth-proxy-privileged-scc", namespace: ns }) },
+      { name: "AgentCard openclaw-agent-card", fn: async () => {
+        const customApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+        await customApi.deleteNamespacedCustomObject({
+          group: "agent.kagenti.dev", version: "v1alpha1", namespace: ns,
+          plural: "agentcards", name: "openclaw-agent-card",
+        });
+      }},
       { name: "OpenTelemetryCollector openclaw-sidecar", fn: async () => {
         const customApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
         await customApi.deleteNamespacedCustomObject({

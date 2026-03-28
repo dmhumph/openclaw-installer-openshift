@@ -137,16 +137,32 @@ export class OpenShiftDeployer implements Deployer {
       metadata: {
         name: "openclaw",
         namespace: ns,
-        labels: { app: "openclaw" },
+        labels: {
+          app: "openclaw",
+          ...(config.withA2a
+            ? {
+                "kagenti.io/type": "agent",
+                "kagenti.io/protocol": "a2a",
+                "app.kubernetes.io/name": "openclaw",
+              }
+            : {}),
+        },
         annotations: {
           "service.beta.openshift.io/serving-cert-secret-name": "openclaw-proxy-tls",
+          ...(config.withA2a ? { "kagenti.io/description": "OpenClaw AI Agent Gateway" } : {}),
         },
       },
       spec: {
         type: "ClusterIP",
         selector: { app: "openclaw" },
         ports: [
+          ...(config.withA2a
+            ? [{ name: "a2a", port: 8080, targetPort: "a2a" as unknown as k8s.IntOrString, protocol: "TCP" as const }]
+            : []),
           { name: "gateway", port: 18789, targetPort: 18789 as unknown as k8s.IntOrString, protocol: "TCP" },
+          ...(config.withA2a
+            ? [{ name: "bridge", port: 18790, targetPort: 18790 as unknown as k8s.IntOrString, protocol: "TCP" as const }]
+            : []),
           { name: "oauth-ui", port: 8443, targetPort: 8443 as unknown as k8s.IntOrString, protocol: "TCP" },
         ],
       },

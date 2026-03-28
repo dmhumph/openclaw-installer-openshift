@@ -248,6 +248,9 @@ export default function DeployForm({ onDeployStarted }: Props) {
     subagentPolicy: "none" as "none" | "self" | "unrestricted",
     // Kubernetes
     namespace: "",
+    withA2a: false,
+    a2aRealm: "",
+    a2aKeycloakNamespace: "keycloak",
     // LiteLLM proxy
     litellmProxy: true,
     // OTEL tracing
@@ -568,6 +571,10 @@ export default function DeployForm({ onDeployStarted }: Props) {
       telegramBotToken: v("TELEGRAM_BOT_TOKEN", "telegramBotToken") || prev.telegramBotToken,
       telegramAllowFrom: v("TELEGRAM_ALLOW_FROM", "telegramAllowFrom") || prev.telegramAllowFrom,
       namespace: explicitNamespace || prev.namespace,
+      withA2a: vars.WITH_A2A === "true" || vars.withA2a === "true" || prev.withA2a,
+      a2aRealm: v("A2A_REALM", "a2aRealm") || prev.a2aRealm,
+      a2aKeycloakNamespace:
+        v("A2A_KEYCLOAK_NAMESPACE", "a2aKeycloakNamespace") || prev.a2aKeycloakNamespace,
       litellmProxy: vars.litellmProxy === "false" ? false : prev.litellmProxy,
       otelEnabled: vars.OTEL_ENABLED === "true" || vars.otelEnabled === "true" || prev.otelEnabled,
       otelJaeger: vars.OTEL_JAEGER === "true" || vars.otelJaeger === "true" || prev.otelJaeger,
@@ -736,6 +743,10 @@ export default function DeployForm({ onDeployStarted }: Props) {
         gcpServiceAccountPath: vertexEnabled ? trimToUndefined(config.gcpServiceAccountPath) : undefined,
         litellmProxy: vertexEnabled ? config.litellmProxy : undefined,
         namespace: trimToUndefined(config.namespace) || suggestedNamespace || undefined,
+        withA2a: config.withA2a || undefined,
+        a2aRealm: config.withA2a ? trimToUndefined(config.a2aRealm) : undefined,
+        a2aKeycloakNamespace:
+          config.withA2a ? trimToUndefined(config.a2aKeycloakNamespace) : undefined,
         sshHost: trimToUndefined(config.sshHost),
         sshUser: trimToUndefined(config.sshUser),
         agentSourceDir: trimToUndefined(config.agentSourceDir),
@@ -823,6 +834,9 @@ export default function DeployForm({ onDeployStarted }: Props) {
       `OTEL_EXPERIMENT_ID=${config.otelExperimentId}`,
       "",
       `K8S_NAMESPACE=${config.namespace || suggestedNamespace}`,
+      `WITH_A2A=${config.withA2a}`,
+      `A2A_REALM=${config.a2aRealm}`,
+      `A2A_KEYCLOAK_NAMESPACE=${config.a2aKeycloakNamespace}`,
     ];
 
     if (config.sandboxSshCertificate && !config.sandboxSshCertificatePath) {
@@ -1126,6 +1140,65 @@ export default function DeployForm({ onDeployStarted }: Props) {
               </div>
             ) : null}
           </div>
+        )}
+
+        {isClusterMode && (
+          <details style={{ marginTop: "1rem" }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+              Kagenti A2A
+              <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>
+                {" "}Optional: enable A2A sidecar + Kagenti namespace wiring
+              </span>
+            </summary>
+
+            <div className="card" style={{ marginTop: "0.75rem" }}>
+              <div className="form-group">
+                <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <input
+                    type="checkbox"
+                    checked={config.withA2a}
+                    onChange={(e) =>
+                      setConfig((prev) => ({ ...prev, withA2a: e.target.checked }))
+                    }
+                    style={{ width: "auto" }}
+                  />
+                  Enable Kagenti A2A
+                </label>
+                <div className="hint">
+                  Assumes a Kagenti stack is already running. The installer will add the Kagenti labels,
+                  namespace ConfigMaps, A2A bridge sidecar, built-in A2A skill, and the <code>AgentCard</code> resource.
+                </div>
+              </div>
+
+              {config.withA2a && (
+                <>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Keycloak Realm</label>
+                      <input
+                        type="text"
+                        placeholder="demo"
+                        value={config.a2aRealm}
+                        onChange={(e) => update("a2aRealm", e.target.value)}
+                      />
+                      <div className="hint">
+                        Set this to your Kagenti Keycloak realm, for example <code>lobster</code>.
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label>Keycloak Namespace</label>
+                      <input
+                        type="text"
+                        placeholder="keycloak"
+                        value={config.a2aKeycloakNamespace}
+                        onChange={(e) => update("a2aKeycloakNamespace", e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </details>
         )}
 
         <details style={{ marginTop: "1.5rem" }}>
