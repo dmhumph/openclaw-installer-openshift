@@ -11,6 +11,7 @@ import { detectRuntime } from "./services/container.js";
 import { isClusterReachable, currentContext, currentNamespace, resetKubeConfig } from "./services/k8s.js";
 import { stopAllK8sPortForwards } from "./services/k8s-port-forward.js";
 import { detectGcpDefaults } from "./services/gcp.js";
+import { fetchModelEndpointCatalog } from "./services/model-endpoint.js";
 import { readdir, readFile } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { installerDataDir } from "./paths.js";
@@ -184,6 +185,23 @@ app.post("/api/configs/source-env", async (req, res) => {
     res.json({ vars });
   } catch {
     res.status(404).json({ error: `No .env found at ${envPath}` });
+  }
+});
+
+app.post("/api/configs/model-endpoint-models", async (req, res) => {
+  const endpoint = String(req.body?.endpoint || "").trim();
+  const apiKey = String(req.body?.apiKey || "").trim();
+  if (!endpoint) {
+    res.status(400).json({ error: "endpoint is required" });
+    return;
+  }
+
+  try {
+    const models = await fetchModelEndpointCatalog(endpoint, apiKey || undefined);
+    res.json({ models });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ error: message });
   }
 });
 

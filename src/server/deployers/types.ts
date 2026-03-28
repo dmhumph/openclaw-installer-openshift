@@ -14,6 +14,11 @@ export interface DeploySecretRef {
   id: string;
 }
 
+export interface DeployModelOption {
+  id: string;
+  name?: string;
+}
+
 export interface DeployConfig {
   mode: DeployMode;
   // Common
@@ -53,11 +58,17 @@ export interface DeployConfig {
   // Model provider (all optional — without them, agents use in-cluster model)
   anthropicApiKey?: string;
   openaiApiKey?: string;
+  anthropicModel?: string;
+  openaiModel?: string;
   inferenceProvider?: InferenceProvider;
   agentModel?: string;
+  modelFallbacks?: string[];
   openaiCompatibleEndpointsEnabled?: boolean;
   modelEndpoint?: string;
   modelEndpointApiKey?: string;
+  modelEndpointModel?: string;
+  modelEndpointModelLabel?: string;
+  modelEndpointModels?: DeployModelOption[];
   // Vertex AI
   vertexEnabled?: boolean;
   vertexProvider?: "google" | "anthropic"; // google = Gemini, anthropic = Claude via Vertex
@@ -83,12 +94,15 @@ export interface DeployConfig {
   telegramAllowFrom?: string; // comma-separated user IDs
   // Local mode
   containerRuntime?: "podman" | "docker";
+  containerRunArgs?: string;
   image?: string;
   port?: number;
   agentSourceDir?: string; // Host directory with workspace-*, skills/, and cron/jobs.json to provision
   // Kubernetes mode
   namespace?: string;
   withA2a?: boolean;
+  a2aRealm?: string;
+  a2aKeycloakNamespace?: string;
   // SSH mode
   sshHost?: string;
   sshUser?: string;

@@ -1,6 +1,6 @@
 import process from "node:process";
 import { randomBytes } from "node:crypto";
-import type { DeployConfig, DeploySecretRef } from "./types.js";
+import type { DeployConfig, DeployModelOption, DeploySecretRef } from "./types.js";
 import { shouldUseLitellmProxy, litellmModelName, LITELLM_PORT } from "./litellm.js";
 import { shouldUseOtel, OTEL_HTTP_PORT } from "./otel.js";
 import { buildSandboxConfig } from "./sandbox.js";
@@ -9,6 +9,7 @@ import { loadAgentSourceBundle } from "./agent-source.js";
 
 export const DEFAULT_IMAGE = process.env.OPENCLAW_IMAGE || "ghcr.io/openclaw/openclaw:latest";
 export const DEFAULT_VERTEX_IMAGE = process.env.OPENCLAW_VERTEX_IMAGE || DEFAULT_IMAGE;
+export const CUSTOM_ENDPOINT_PROVIDER = "endpoint";
 
 export function defaultImage(config: DeployConfig): string {
   if (config.image) return config.image;
@@ -60,8 +61,11 @@ export function normalizeModelRef(config: DeployConfig, modelRef: string): strin
   if (trimmed.includes("/")) return trimmed;
 
   if (config.inferenceProvider === "anthropic") return `anthropic/${trimmed}`;
-  if (config.inferenceProvider === "openai" || config.inferenceProvider === "custom-endpoint") {
+  if (config.inferenceProvider === "openai") {
     return `openai/${trimmed}`;
+  }
+  if (config.inferenceProvider === "custom-endpoint") {
+    return `${CUSTOM_ENDPOINT_PROVIDER}/${trimmed}`;
   }
   // Fix for #1: check litellm proxy before falling back to direct vertex providers
   if (config.inferenceProvider === "vertex-anthropic") {
@@ -85,11 +89,70 @@ export function buildDefaultAgentModelCatalog(modelRef: string): Record<string, 
   };
 }
 
+function normalizeProviderModelRef(provider: string, modelRef?: string): string | undefined {
+  const trimmed = modelRef?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return trimmed.includes("/") ? trimmed : `${provider}/${trimmed}`;
+}
+
+export function buildConfiguredAgentModelCatalog(
+  config: DeployConfig,
+  primaryModelRef: string,
+): Record<string, { alias: string }> {
+  const catalog = buildDefaultAgentModelCatalog(primaryModelRef);
+  const configuredModels = [
+    {
+      ref: normalizeProviderModelRef("anthropic", config.anthropicModel),
+      alias: config.anthropicModel?.trim() || undefined,
+    },
+    {
+      ref: normalizeProviderModelRef("openai", config.openaiModel),
+      alias: config.openaiModel?.trim() || undefined,
+    },
+    {
+      ref: normalizeProviderModelRef(CUSTOM_ENDPOINT_PROVIDER, config.modelEndpointModel),
+      alias: config.modelEndpointModelLabel?.trim() || config.modelEndpointModel?.trim() || undefined,
+    },
+  ];
+  for (const { ref, alias } of configuredModels) {
+    const modelRef = ref;
+    if (!modelRef) {
+      continue;
+    }
+    catalog[modelRef] = { alias: alias || modelRef.split("/").pop() || modelRef };
+  }
+  for (const option of config.modelEndpointModels || []) {
+    const id = String(option.id || "").trim();
+    if (!id) {
+      continue;
+    }
+    const ref = `${CUSTOM_ENDPOINT_PROVIDER}/${id}`;
+    const alias = String(option.name || "").trim() || id;
+    catalog[ref] = { alias };
+  }
+  return catalog;
+}
+
+function buildAgentModelConfig(config: DeployConfig, primaryModelRef: string): { primary: string; fallbacks?: string[] } {
+  const fallbacks = (config.modelFallbacks || [])
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0 && entry !== primaryModelRef);
+  return fallbacks.length > 0
+    ? { primary: primaryModelRef, fallbacks }
+    : { primary: primaryModelRef };
+}
+
 export function deriveModel(config: DeployConfig): string {
   if (config.agentModel) return normalizeModelRef(config, config.agentModel);
   if (config.inferenceProvider === "anthropic") return "anthropic/claude-sonnet-4-6";
   if (config.inferenceProvider === "openai") return "openai/gpt-5.4";
-  if (config.inferenceProvider === "custom-endpoint") return "openai/default";
+  if (config.inferenceProvider === "custom-endpoint") {
+    return config.modelEndpointModel?.trim()
+      ? normalizeModelRef(config, config.modelEndpointModel)
+      : `${CUSTOM_ENDPOINT_PROVIDER}/default`;
+  }
   if (config.inferenceProvider === "vertex-anthropic") {
     return config.litellmProxy ? `litellm/${litellmModelName(config)}` : "anthropic-vertex/claude-sonnet-4-6";
   }
@@ -105,7 +168,11 @@ export function deriveModel(config: DeployConfig): string {
       : "google-vertex/gemini-2.5-pro";
   }
   if (config.openaiApiKey || config.openaiApiKeyRef) return "openai/gpt-5.4";
-  if (config.modelEndpoint) return "openai/default";
+  if (config.modelEndpoint) {
+    return config.modelEndpointModel?.trim()
+      ? normalizeProviderModelRef(CUSTOM_ENDPOINT_PROVIDER, config.modelEndpointModel) || `${CUSTOM_ENDPOINT_PROVIDER}/default`
+      : `${CUSTOM_ENDPOINT_PROVIDER}/default`;
+  }
   if (config.anthropicApiKey || config.anthropicApiKeyRef) return "anthropic/claude-sonnet-4-6";
   return "anthropic/claude-sonnet-4-6";
 }
@@ -179,14 +246,38 @@ function attachSecretHandlingConfig(ocConfig: Record<string, unknown>, config: D
   }
   if (config.modelEndpoint?.trim()) {
     const providerApiKeyRef = modelEndpointApiKeyRef || openaiApiKeyRef;
-    const openaiProvider: Record<string, unknown> = {
-      ...((providersMap.openai as Record<string, unknown> | undefined) || {}),
+    const endpointProvider: Record<string, unknown> = {
+      ...((providersMap[CUSTOM_ENDPOINT_PROVIDER] as Record<string, unknown> | undefined) || {}),
       baseUrl: config.modelEndpoint.trim(),
+      api: "openai-completions",
     };
     if (providerApiKeyRef) {
-      openaiProvider.apiKey = cloneSecretRef(providerApiKeyRef);
+      endpointProvider.apiKey = cloneSecretRef(providerApiKeyRef);
     }
-    providersMap.openai = openaiProvider;
+    if (config.modelEndpointModel?.trim()) {
+      const modelId = config.modelEndpointModel.trim();
+      endpointProvider.models = [{ id: modelId, name: config.modelEndpointModelLabel?.trim() || modelId }];
+    }
+    const extraModels = (config.modelEndpointModels || [])
+      .map((option) => ({
+        id: String(option.id || "").trim(),
+        name: String(option.name || "").trim() || String(option.id || "").trim(),
+      }))
+      .filter((option) => option.id.length > 0);
+    if (extraModels.length > 0) {
+      const merged = new Map<string, DeployModelOption>();
+      for (const option of Array.isArray(endpointProvider.models) ? endpointProvider.models as DeployModelOption[] : []) {
+        const id = String(option.id || "").trim();
+        if (id) {
+          merged.set(id, { id, name: String(option.name || "").trim() || id });
+        }
+      }
+      for (const option of extraModels) {
+        merged.set(option.id, option);
+      }
+      endpointProvider.models = Array.from(merged.values());
+    }
+    providersMap[CUSTOM_ENDPOINT_PROVIDER] = endpointProvider;
   }
 
   if (Object.keys(providersMap).length > 0) {
@@ -260,8 +351,8 @@ export function buildOpenClawConfig(config: DeployConfig, gatewayToken: string):
     agents: {
       defaults: {
         workspace: "~/.openclaw/workspace",
-        model: { primary: model },
-        models: buildDefaultAgentModelCatalog(model),
+        model: buildAgentModelConfig(config, model),
+        models: buildConfiguredAgentModelCatalog(config, model),
         ...(buildSandboxConfig(config) ? { sandbox: buildSandboxConfig(config) } : {}),
       },
       list: [
@@ -270,7 +361,7 @@ export function buildOpenClawConfig(config: DeployConfig, gatewayToken: string):
           name: config.agentDisplayName || config.agentName,
           identity: { name: config.agentDisplayName || config.agentName },
           workspace: `~/.openclaw/workspace-${id}`,
-          model: { primary: model },
+          model: buildAgentModelConfig(config, model),
           subagents: sourceBundle?.mainAgent?.subagents || subagentConfig(config.subagentPolicy),
           ...(sourceBundle?.mainAgent?.tools ? { tools: sourceBundle.mainAgent.tools } : {}),
         },
