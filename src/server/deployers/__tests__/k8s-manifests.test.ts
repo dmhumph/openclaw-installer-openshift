@@ -72,6 +72,29 @@ describe("k8s state sync manifests", () => {
   });
 });
 
+// Regression test for #62: workspace-shadowman not recognized as main agent workspace
+describe("workspace routing in init script", () => {
+  it("does not hard-code workspace-main in the init script", () => {
+    const deployment = deploymentManifest("ns", makeConfig());
+    const initContainer = deployment.spec?.template.spec?.initContainers?.[0];
+    const initScript = initContainer?.command?.[2] ?? "";
+
+    // The old bug: init script contained a hard-coded check for "workspace-main"
+    // which caused persona-named workspaces (e.g. workspace-shadowman) to be
+    // copied to dead paths. The fix uses bundle-aware routing instead.
+    expect(initScript).not.toContain('"workspace-main"');
+    expect(initScript).not.toContain("= \"workspace-main\"");
+  });
+
+  it("still copies workspace-* directories via find", () => {
+    const deployment = deploymentManifest("ns", makeConfig());
+    const initContainer = deployment.spec?.template.spec?.initContainers?.[0];
+    const initScript = initContainer?.command?.[2] ?? "";
+
+    expect(initScript).toContain("find /agents-tree -mindepth 1 -type d -name 'workspace-*'");
+  });
+});
+
 // Regression tests for #6: API keys must not leak to the gateway in proxy mode
 describe("gateway env vars in proxy mode", () => {
   it("excludes ANTHROPIC_API_KEY and OPENAI_API_KEY when litellm proxy is active", () => {

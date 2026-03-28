@@ -10,6 +10,7 @@ import type { DeployConfig } from "./types.js";
 import { shouldUseLitellmProxy, LITELLM_IMAGE, LITELLM_PORT } from "./litellm.js";
 import { shouldUseOtel, OTEL_COLLECTOR_IMAGE, OTEL_GRPC_PORT, OTEL_HTTP_PORT, otelAgentEnv } from "./otel.js";
 import type { TreeEntry } from "../state-tree.js";
+import { loadAgentSourceBundle, mainWorkspaceShellCondition } from "./agent-source.js";
 
 export function namespaceManifest(ns: string): k8s.V1Namespace {
   return {
@@ -287,6 +288,10 @@ export function deploymentManifest(
     .map((f) => `  cp /agents/${f} /home/node/.openclaw/workspace-${id}/${f} 2>/dev/null || true`)
     .join("\n");
 
+  // Fix for #62: use bundle-aware routing so persona-named workspaces map to the main agent
+  const mainWorkspaceDest = `/home/node/.openclaw/workspace-${id}`;
+  const workspaceRouting = mainWorkspaceShellCondition(mainWorkspaceDest, loadAgentSourceBundle(config));
+
   const initScript = `
 cp /config/openclaw.json /home/node/.openclaw/openclaw.json
 chmod 644 /home/node/.openclaw/openclaw.json
@@ -295,7 +300,7 @@ mkdir -p /home/node/.openclaw/skills
 mkdir -p /home/node/.openclaw/cron
 mkdir -p /home/node/.openclaw/workspace-${id}
 ${copyLines}
-find /agents-tree -mindepth 1 -type d -name 'workspace-*' -exec sh -c 'base="$(basename "$1")"; if [ "$base" = "workspace-main" ]; then dest="/home/node/.openclaw/workspace-${id}"; else dest="/home/node/.openclaw/$base"; fi; mkdir -p "$dest"; cp -r "$1"/* "$dest"/ 2>/dev/null || true' _ {} \\;
+find /agents-tree -mindepth 1 -type d -name 'workspace-*' -exec sh -c 'base="$(basename "$1")"; ${workspaceRouting}; mkdir -p "$dest"; cp -r "$1"/* "$dest"/ 2>/dev/null || true' _ {} \\;
 cp -r /skills-src/. /home/node/.openclaw/skills/ 2>/dev/null || true
 cp /cron-src/jobs.json /home/node/.openclaw/cron/jobs.json 2>/dev/null || true
 chown -R 1000:1000 /home/node/.openclaw 2>/dev/null || true

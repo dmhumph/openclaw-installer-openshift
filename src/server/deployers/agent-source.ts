@@ -37,6 +37,44 @@ export async function loadAgentSourceWorkspaceTree(agentSourceDir?: string): Pro
   return await loadTextTree(agentSourceDir);
 }
 
+/**
+ * Extract subagent IDs from a loaded bundle.
+ */
+export function subagentIds(bundle: AgentSourceBundle | undefined): string[] {
+  return (bundle?.agents || []).map((a) => a.id);
+}
+
+/**
+ * Build a shell snippet that routes workspace-* directories during copy.
+ *
+ * Directories whose basename matches a known subagent ID (e.g. workspace-builder)
+ * are copied to their own path.  The remaining workspace-* directory — regardless
+ * of its name — is treated as the main agent workspace.  This allows bundles to
+ * use persona names like workspace-shadowman instead of the rigid workspace-main.
+ *
+ * `workspace-main` continues to work because it will never collide with a
+ * subagent ID.
+ *
+ * @param mainDest  Shell expression for the main agent workspace path
+ *                  (may contain shell variables, e.g. '${workspaceDir}')
+ * @param bundle    The loaded agent source bundle (may be undefined)
+ * @returns         A shell `if` statement body suitable for embedding
+ */
+export function mainWorkspaceShellCondition(
+  mainDest: string,
+  bundle: AgentSourceBundle | undefined,
+): string {
+  const ids = subagentIds(bundle);
+  if (ids.length === 0) {
+    // No subagents — every workspace-* directory is the main workspace
+    // (preserves legacy workspace-main behaviour too).
+    return `dest="${mainDest}"`;
+  }
+  // Build: if [ "$base" = "workspace-builder" ] || [ "$base" = "workspace-research" ] ...
+  const checks = ids.map((id) => `[ "$base" = "workspace-${id}" ]`).join(" || ");
+  return `if ${checks}; then dest="/home/node/.openclaw/$base"; else dest="${mainDest}"; fi`;
+}
+
 export function loadAgentSourceCronJobs(agentSourceDir?: string): string | undefined {
   if (!agentSourceDir) return undefined;
   const cronPath = join(agentSourceDir, "cron", "jobs.json");

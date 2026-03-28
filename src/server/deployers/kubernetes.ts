@@ -15,7 +15,7 @@ import type {
 } from "./types.js";
 import { namespaceName, agentId, generateToken, usesDefaultEnvSecretRef } from "./k8s-helpers.js";
 import { loadWorkspaceFiles } from "./k8s-agent.js";
-import { loadAgentSourceCronJobs, loadAgentSourceWorkspaceTree } from "./agent-source.js";
+import { loadAgentSourceBundle, loadAgentSourceCronJobs, loadAgentSourceWorkspaceTree, mainWorkspaceShellCondition } from "./agent-source.js";
 import {
   namespaceManifest,
   pvcManifest,
@@ -583,6 +583,10 @@ export class KubernetesDeployer implements Deployer {
       .map((f) => `cp /agents/${f} /home/node/.openclaw/workspace-${id}/${f} 2>/dev/null || true`)
       .join("\n");
 
+    // Fix for #62: use bundle-aware routing so persona-named workspaces map to the main agent
+    const mainWorkspaceDest = `/home/node/.openclaw/workspace-${id}`;
+    const workspaceRouting = mainWorkspaceShellCondition(mainWorkspaceDest, loadAgentSourceBundle(result.config));
+
     const initScript = `
 cp /config/openclaw.json /home/node/.openclaw/openclaw.json
 chmod 644 /home/node/.openclaw/openclaw.json
@@ -591,7 +595,7 @@ mkdir -p /home/node/.openclaw/skills
 mkdir -p /home/node/.openclaw/cron
 mkdir -p /home/node/.openclaw/workspace-${id}
 ${copyLines}
-find /agents-tree -mindepth 1 -type d -name 'workspace-*' -exec sh -c 'base="$(basename "$1")"; if [ "$base" = "workspace-main" ]; then dest="/home/node/.openclaw/workspace-${id}"; else dest="/home/node/.openclaw/$base"; fi; mkdir -p "$dest"; cp -r "$1"/* "$dest"/ 2>/dev/null || true' _ {} \\;
+find /agents-tree -mindepth 1 -type d -name 'workspace-*' -exec sh -c 'base="$(basename "$1")"; ${workspaceRouting}; mkdir -p "$dest"; cp -r "$1"/* "$dest"/ 2>/dev/null || true' _ {} \\;
 cp -r /skills-src/. /home/node/.openclaw/skills/ 2>/dev/null || true
 cp /cron-src/jobs.json /home/node/.openclaw/cron/jobs.json 2>/dev/null || true
 chgrp -R 0 /home/node/.openclaw 2>/dev/null || true

@@ -2,7 +2,7 @@ import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { v4 as uuid } from "uuid";
 import type {
   Deployer,
@@ -43,7 +43,7 @@ import {
 } from "./k8s-helpers.js";
 import { buildSandboxConfig } from "./sandbox.js";
 import { buildSandboxToolPolicy } from "./tool-policy.js";
-import { loadAgentSourceBundle } from "./agent-source.js";
+import { loadAgentSourceBundle, mainWorkspaceShellCondition } from "./agent-source.js";
 
 const DEFAULT_IMAGE = process.env.OPENCLAW_IMAGE || "ghcr.io/openclaw/openclaw:latest";
 const DEFAULT_VERTEX_IMAGE = process.env.OPENCLAW_VERTEX_IMAGE || DEFAULT_IMAGE;
@@ -879,6 +879,7 @@ export class LocalDeployer implements Deployer {
 
     const agentId = `${config.prefix || "openclaw"}_${config.agentName}`;
     const workspaceDir = `/home/node/.openclaw/workspace-${agentId}`;
+    const sourceBundle = loadAgentSourceBundle(config);
 
     // Build init script: write config + workspace files on first deploy
     const gatewayToken = generateToken();
@@ -1011,8 +1012,10 @@ Use this table to track verified peer OpenClaw instances.
       `test -f '${workspaceDir}/USER.md' || cat > '${workspaceDir}/USER.md' << 'USEREOF'\n${userMd}\nUSEREOF`,
       `test -f '${workspaceDir}/HEARTBEAT.md' || cat > '${workspaceDir}/HEARTBEAT.md' << 'HBEOF'\n${heartbeatMd}\nHBEOF`,
       `test -f '${workspaceDir}/MEMORY.md' || cat > '${workspaceDir}/MEMORY.md' << 'MEMEOF'\n${memoryMd}\nMEMEOF`,
-      // If user provided agent source files via mount, copy them in (overrides defaults)
-      `for d in /tmp/agent-source/workspace-*; do if [ -d "$d" ]; then base="$(basename "$d")"; if [ "$base" = "workspace-main" ]; then dest='${workspaceDir}'; else dest="/home/node/.openclaw/$base"; fi; mkdir -p "$dest"; cp -r "$d"/* "$dest"/ 2>/dev/null || true; fi; done`,
+      // If user provided agent source files via mount, copy them in (overrides defaults).
+      // Fix for #62: infer the main agent workspace by elimination — any workspace-*
+      // directory that doesn't match a subagent ID is the main agent's workspace.
+      `for d in /tmp/agent-source/workspace-*; do if [ -d "$d" ]; then base="$(basename "$d")"; ${mainWorkspaceShellCondition(workspaceDir, sourceBundle)}; mkdir -p "$dest"; cp -r "$d"/* "$dest"/ 2>/dev/null || true; fi; done`,
       `if [ -d /tmp/agent-source/skills ]; then cp -r /tmp/agent-source/skills/* /home/node/.openclaw/skills/ 2>/dev/null || true; fi`,
       `if [ -f /tmp/agent-source/cron/jobs.json ]; then mkdir -p /home/node/.openclaw/cron && cp /tmp/agent-source/cron/jobs.json /home/node/.openclaw/cron/jobs.json 2>/dev/null || true; fi`,
       runtimeOwnershipFixupCommand(),
@@ -1344,19 +1347,19 @@ Use this table to track verified peer OpenClaw instances.
       }
     }
 
-    if (
-      agentSourceDir && (
-        existsSync(join(agentSourceDir, `workspace-${agentId}`))
-        || existsSync(join(agentSourceDir, "workspace-main"))
-      )
-    ) {
+    // Fix for #62: detect any workspace-* directory, not just workspace-main or workspace-${agentId}
+    const hasWorkspaceDirs = agentSourceDir && existsSync(agentSourceDir)
+      && readdirSync(agentSourceDir).some((e) => e.startsWith("workspace-"));
+
+    if (hasWorkspaceDirs) {
       log("Updating agent files from host...");
       const workspaceDir = `/home/node/.openclaw/workspace-${agentId}`;
+      const bundleForCopy = loadAgentSourceBundle(effectiveConfig);
       const copyScript = [
         `for d in /tmp/agent-source/workspace-*; do`,
         `  if [ -d "$d" ]; then`,
         `    base="$(basename "$d")"`,
-        `    if [ "$base" = "workspace-main" ]; then dest='${workspaceDir}'; else dest="/home/node/.openclaw/$base"; fi`,
+        `    ${mainWorkspaceShellCondition(workspaceDir, bundleForCopy)}`,
         `    mkdir -p "$dest"`,
         `    cp -r "$d"/* "$dest"/ 2>/dev/null || true`,
         `  fi`,
@@ -1816,11 +1819,14 @@ Use this table to track verified peer OpenClaw instances.
     log(`Re-deploying agent files from ${agentSourceDir}...`);
 
     // Copy updated agent files into the volume
+    // Fix for #62: use bundle-aware routing so persona-named workspaces
+    // (e.g. workspace-shadowman) map to the main agent workspace.
+    const redeployBundle = loadAgentSourceBundle(result.config);
     const copyScript = [
       `for d in /tmp/agent-source/workspace-*; do`,
       `  if [ -d "$d" ]; then`,
       `    base="$(basename "$d")"`,
-      `    if [ "$base" = "workspace-main" ]; then dest='${workspaceDir}'; else dest="/home/node/.openclaw/$base"; fi`,
+      `    ${mainWorkspaceShellCondition(workspaceDir, redeployBundle)}`,
       `    mkdir -p "$dest"`,
       `    cp -vr "$d"/* "$dest"/ 2>/dev/null || true`,
       `  fi`,
