@@ -5,6 +5,7 @@ import { userInfo } from "node:os";
 import type { DeployConfig, DeploySecretRef } from "../deployers/types.js";
 import { validateAgentName } from "../../shared/validate-agent-name.js";
 import { detectGcpDefaults, defaultVertexLocation } from "../services/gcp.js";
+import { normalizeModelEndpointBaseUrl } from "../services/model-endpoint.js";
 import { namespaceName } from "../deployers/k8s-helpers.js";
 import { registry } from "../deployers/registry.js";
 import { k8sApiHttpCode } from "../services/k8s.js";
@@ -34,6 +35,26 @@ function normalizeSecretRef(ref: DeploySecretRef | undefined): DeploySecretRef |
     throw new Error("SecretRef requires source, provider, and id");
   }
   return { source, provider, id };
+}
+
+function normalizeModelFallbacks(modelFallbacks: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(modelFallbacks)) {
+    return undefined;
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const entry of modelFallbacks) {
+    if (typeof entry !== "string") {
+      continue;
+    }
+    const trimmed = trimOptional(entry);
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 export function applyServerEnvFallbacks(config: DeployConfig, env: NodeJS.ProcessEnv = process.env): void {
@@ -74,21 +95,36 @@ router.post("/", async (req, res) => {
   config.image = trimOptional(config.image);
   config.modelEndpoint = trimOptional(config.modelEndpoint);
   config.modelEndpointApiKey = trimOptional(config.modelEndpointApiKey);
+  config.modelEndpointModel = trimOptional(config.modelEndpointModel);
+  config.modelEndpointModelLabel = trimOptional(config.modelEndpointModelLabel);
   config.googleCloudProject = trimOptional(config.googleCloudProject);
   config.googleCloudLocation = trimOptional(config.googleCloudLocation);
   config.gcpServiceAccountJson = trimOptional(config.gcpServiceAccountJson);
   config.gcpServiceAccountPath = trimOptional(config.gcpServiceAccountPath);
   config.telegramBotToken = trimOptional(config.telegramBotToken);
   config.telegramAllowFrom = trimOptional(config.telegramAllowFrom);
+  config.anthropicModel = trimOptional(config.anthropicModel);
+  config.openaiModel = trimOptional(config.openaiModel);
   config.namespace = trimOptional(config.namespace);
   config.a2aRealm = trimOptional(config.a2aRealm);
   config.a2aKeycloakNamespace = trimOptional(config.a2aKeycloakNamespace);
   config.sshHost = trimOptional(config.sshHost);
   config.sshUser = trimOptional(config.sshUser);
   config.agentSourceDir = trimOptional(config.agentSourceDir);
+  config.containerRunArgs = trimOptional(config.containerRunArgs);
+  config.modelFallbacks = normalizeModelFallbacks(config.modelFallbacks);
   config.otelEndpoint = trimOptional(config.otelEndpoint);
   config.otelExperimentId = trimOptional(config.otelExperimentId);
   config.secretsProvidersJson = trimOptional(config.secretsProvidersJson);
+
+  if (config.modelEndpoint) {
+    try {
+      config.modelEndpoint = normalizeModelEndpointBaseUrl(config.modelEndpoint);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+  }
 
   try {
     config.anthropicApiKeyRef = normalizeSecretRef(config.anthropicApiKeyRef);

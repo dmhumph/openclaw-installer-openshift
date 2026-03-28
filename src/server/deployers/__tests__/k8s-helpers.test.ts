@@ -224,23 +224,106 @@ describe("model config generation", () => {
       openaiApiKey: "openai-key",
       modelEndpoint: "http://localhost:8000/v1",
       modelEndpointApiKey: "endpoint-token",
+      modelEndpointModel: "llama-4-scout-17b-16e-w4a16",
+      modelEndpointModels: [
+        { id: "llama-4-scout-17b-16e-w4a16", name: "Llama 4 Scout 17B" },
+        { id: "llama-4-maverick-17b", name: "Llama 4 Maverick 17B" },
+      ],
     });
 
     const rendered = buildOpenClawConfig(config, "gateway-token") as {
       models?: {
-        providers?: Record<string, { apiKey?: unknown; baseUrl?: string }>;
+        providers?: Record<string, {
+          apiKey?: unknown;
+          baseUrl?: string;
+          api?: string;
+          models?: Array<{ id?: string; name?: string }>;
+        }>;
       };
       secrets?: { providers?: Record<string, unknown> };
     };
 
-    expect(rendered.models?.providers?.openai?.baseUrl).toBe("http://localhost:8000/v1");
-    expect(rendered.models?.providers?.openai?.apiKey).toEqual({
+    expect(rendered.models?.providers?.endpoint?.baseUrl).toBe("http://localhost:8000/v1");
+    expect(rendered.models?.providers?.endpoint?.api).toBe("openai-completions");
+    expect(rendered.models?.providers?.endpoint?.apiKey).toEqual({
       source: "env",
       provider: "default",
       id: "MODEL_ENDPOINT_API_KEY",
     });
+    expect(rendered.models?.providers?.endpoint?.models).toEqual([
+      { id: "llama-4-scout-17b-16e-w4a16", name: "Llama 4 Scout 17B" },
+      { id: "llama-4-maverick-17b", name: "Llama 4 Maverick 17B" },
+    ]);
     expect(rendered.secrets?.providers).toMatchObject({
       default: { source: "env" },
+    });
+  });
+
+  it("adds installer-provided provider models to the OpenClaw picker allowlist", () => {
+    const config = makeConfig({
+      inferenceProvider: "anthropic",
+      agentModel: "claude-sonnet-4-6",
+      anthropicModel: "claude-opus-4-6",
+      openaiModel: "gpt-5",
+      modelEndpoint: "http://localhost:8000/v1",
+      modelEndpointModel: "llama-4-scout-17b-16e-w4a16",
+      modelEndpointModels: [
+        { id: "llama-4-scout-17b-16e-w4a16", name: "Llama 4 Scout 17B" },
+        { id: "llama-4-maverick-17b", name: "Llama 4 Maverick 17B" },
+      ],
+    });
+
+    const rendered = buildOpenClawConfig(config, "gateway-token") as {
+      agents?: {
+        defaults?: {
+          models?: Record<string, { alias?: string }>;
+        };
+      };
+    };
+
+    expect(rendered.agents?.defaults?.models).toMatchObject({
+      "anthropic/claude-sonnet-4-6": { alias: "claude-sonnet-4-6" },
+      "anthropic/claude-opus-4-6": { alias: "claude-opus-4-6" },
+      "openai/gpt-5": { alias: "gpt-5" },
+      "endpoint/llama-4-scout-17b-16e-w4a16": { alias: "Llama 4 Scout 17B" },
+      "endpoint/llama-4-maverick-17b": { alias: "Llama 4 Maverick 17B" },
+    });
+  });
+
+  it("writes ordered model fallbacks into the OpenClaw config", () => {
+    const config = makeConfig({
+      inferenceProvider: "anthropic",
+      agentModel: "claude-sonnet-4-6",
+      modelFallbacks: [
+        "openai/gpt-5",
+        "endpoint/llama-4-scout-17b-16e-w4a16",
+      ],
+    });
+
+    const rendered = buildOpenClawConfig(config, "gateway-token") as {
+      agents?: {
+        defaults?: {
+          model?: { primary?: string; fallbacks?: string[] };
+        };
+        list?: Array<{
+          model?: { primary?: string; fallbacks?: string[] };
+        }>;
+      };
+    };
+
+    expect(rendered.agents?.defaults?.model).toEqual({
+      primary: "anthropic/claude-sonnet-4-6",
+      fallbacks: [
+        "openai/gpt-5",
+        "endpoint/llama-4-scout-17b-16e-w4a16",
+      ],
+    });
+    expect(rendered.agents?.list?.[0]?.model).toEqual({
+      primary: "anthropic/claude-sonnet-4-6",
+      fallbacks: [
+        "openai/gpt-5",
+        "endpoint/llama-4-scout-17b-16e-w4a16",
+      ],
     });
   });
 

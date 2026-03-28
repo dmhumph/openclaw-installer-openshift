@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { validateAgentName } from "../../shared/validate-agent-name.js";
 
 type InferenceProvider = "anthropic" | "openai" | "vertex-anthropic" | "vertex-google" | "custom-endpoint";
@@ -33,6 +33,7 @@ interface ServerDefaults {
   modelEndpoint: string;
   prefix: string;
   image: string;
+  containerRuntime?: string;
   k8sAvailable?: boolean;
   k8sContext?: string;
   k8sNamespace?: string;
@@ -55,6 +56,11 @@ interface SavedConfig {
   name: string;
   type: "local" | "k8s";
   vars: Record<string, unknown>;
+}
+
+interface ModelEndpointOption {
+  id: string;
+  name: string;
 }
 
 const MODE_ICONS: Record<string, string> = {
@@ -85,7 +91,7 @@ const MODEL_HINTS: Record<InferenceProvider, string> = {
   "openai": "Examples: openai/gpt-5, openai/gpt-5.3",
   "vertex-anthropic": "Examples: anthropic-vertex/claude-sonnet-4-6, anthropic-vertex/claude-opus-4-6",
   "vertex-google": "Examples: google-vertex/gemini-2.5-pro, google-vertex/gemini-2.5-flash",
-  "custom-endpoint": "Specify the model ID served by your endpoint",
+  "custom-endpoint": "Examples: mistral-small-24b-w8a8, mistral-medium-3.1-24b-instruct-2506",
 };
 
 const PROXY_MODEL_HINTS: Record<string, string> = {
@@ -191,6 +197,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
     agentName: "",
     agentDisplayName: "",
     image: "",
+    containerRunArgs: "",
     secretsProvidersJson: "",
     anthropicApiKeyRefSource: "env",
     anthropicApiKeyRefProvider: "default",
@@ -224,10 +231,15 @@ export default function DeployForm({ onDeployStarted }: Props) {
     sandboxSshKnownHostsPath: "",
     anthropicApiKey: "",
     openaiApiKey: "",
+    anthropicModel: "",
+    openaiModel: "",
     agentModel: "",
     openaiCompatibleEndpointsEnabled: true,
     modelEndpoint: "",
     modelEndpointApiKey: "",
+    modelEndpointModel: "",
+    modelEndpointModelLabel: "",
+    modelEndpointModels: [] as ModelEndpointOption[],
     port: "18789",
     // Vertex AI / GCP
     googleCloudProject: "",
@@ -263,6 +275,10 @@ export default function DeployForm({ onDeployStarted }: Props) {
   const [gcpDefaults, setGcpDefaults] = useState<GcpDefaults | null>(null);
   const [gcpDefaultsFetched, setGcpDefaultsFetched] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [modelEndpointOptions, setModelEndpointOptions] = useState<ModelEndpointOption[]>([]);
+  const [loadingModelEndpointOptions, setLoadingModelEndpointOptions] = useState(false);
+  const [modelEndpointOptionsError, setModelEndpointOptionsError] = useState<string | null>(null);
+  const previousModelEndpointRef = useRef("");
 
   const isClusterMode = mode === "kubernetes" || mode === "openshift";
   const isVertex = inferenceProvider === "vertex-anthropic" || inferenceProvider === "vertex-google";
@@ -409,6 +425,43 @@ export default function DeployForm({ onDeployStarted }: Props) {
     }
   }, [config.agentSourceDir]);
 
+  useEffect(() => {
+    const nextEndpoint = config.modelEndpoint.trim();
+    const previousEndpoint = previousModelEndpointRef.current;
+    previousModelEndpointRef.current = nextEndpoint;
+    if (previousEndpoint === nextEndpoint) {
+      return;
+    }
+
+    setModelEndpointOptions([]);
+    setModelEndpointOptionsError(null);
+
+    if (!previousEndpoint) {
+      return;
+    }
+
+    setConfig((prev) => {
+      const knownFetchedIds = new Set(prev.modelEndpointModels.map((option) => option.id.trim()));
+      const currentModelId = prev.modelEndpointModel.trim();
+      const shouldClearSelectedModel =
+        Boolean(prev.modelEndpointModelLabel.trim()) || knownFetchedIds.has(currentModelId);
+      return {
+        ...prev,
+        modelEndpointModels: [],
+        modelEndpointModelLabel: "",
+        modelEndpointModel: shouldClearSelectedModel ? "" : prev.modelEndpointModel,
+      };
+    });
+  }, [config.modelEndpoint]);
+
+  useEffect(() => {
+    setModelEndpointOptionsError(null);
+  }, [config.modelEndpointApiKey]);
+
+  useEffect(() => {
+    setModelEndpointOptions(config.modelEndpointModels);
+  }, [config.modelEndpointModels]);
+
   const applyVars = (vars: Record<string, unknown>) => {
     // Support both local .env keys (OPENCLAW_PREFIX) and K8s JSON keys (prefix)
     const v = (envKey: string, jsonKey: string) => {
@@ -436,7 +489,11 @@ export default function DeployForm({ onDeployStarted }: Props) {
         ? (vars as unknown as { secretsProvidersJson?: string }).secretsProvidersJson
         : "");
     const explicitNamespace = v("K8S_NAMESPACE", "namespace");
-
+    const savedEndpointModels =
+      decodeJsonBase64<ModelEndpointOption[]>(vars.MODEL_ENDPOINT_MODELS_B64)
+      || (Array.isArray((vars as Record<string, unknown>).modelEndpointModels)
+        ? ((vars as Record<string, unknown>).modelEndpointModels as ModelEndpointOption[])
+        : undefined);
     const savedInferenceProvider = v("INFERENCE_PROVIDER", "inferenceProvider");
     if (
       savedInferenceProvider === "anthropic"
@@ -468,6 +525,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
       agentName: v("OPENCLAW_AGENT_NAME", "agentName") || prev.agentName,
       agentDisplayName: v("OPENCLAW_DISPLAY_NAME", "agentDisplayName") || prev.agentDisplayName,
       image: v("OPENCLAW_IMAGE", "image") || prev.image,
+      containerRunArgs: v("OPENCLAW_CONTAINER_RUN_ARGS", "containerRunArgs") || prev.containerRunArgs,
       secretsProvidersJson: savedProvidersJson || prev.secretsProvidersJson,
       anthropicApiKeyRefSource: anthropicApiKeyRef?.source || prev.anthropicApiKeyRefSource,
       anthropicApiKeyRefProvider: anthropicApiKeyRef?.provider || prev.anthropicApiKeyRefProvider,
@@ -556,6 +614,8 @@ export default function DeployForm({ onDeployStarted }: Props) {
         v("sandboxSshKnownHosts", "sandboxSshKnownHosts") ||
         prev.sandboxSshKnownHosts,
       port: v("OPENCLAW_PORT", "port") || prev.port,
+      anthropicModel: v("ANTHROPIC_MODEL", "anthropicModel") || prev.anthropicModel,
+      openaiModel: v("OPENAI_MODEL", "openaiModel") || prev.openaiModel,
       agentModel: v("AGENT_MODEL", "agentModel") || prev.agentModel,
       openaiCompatibleEndpointsEnabled:
         vars.OPENAI_COMPATIBLE_ENDPOINTS_ENABLED === "false"
@@ -565,6 +625,9 @@ export default function DeployForm({ onDeployStarted }: Props) {
             : prev.openaiCompatibleEndpointsEnabled,
       modelEndpoint: v("MODEL_ENDPOINT", "modelEndpoint") || prev.modelEndpoint,
       modelEndpointApiKey: v("MODEL_ENDPOINT_API_KEY", "modelEndpointApiKey") || prev.modelEndpointApiKey,
+      modelEndpointModel: v("MODEL_ENDPOINT_MODEL", "modelEndpointModel") || prev.modelEndpointModel,
+      modelEndpointModelLabel: v("MODEL_ENDPOINT_MODEL_LABEL", "modelEndpointModelLabel") || prev.modelEndpointModelLabel,
+      modelEndpointModels: savedEndpointModels || prev.modelEndpointModels,
       googleCloudProject: v("GOOGLE_CLOUD_PROJECT", "googleCloudProject") || prev.googleCloudProject,
       googleCloudLocation: v("GOOGLE_CLOUD_LOCATION", "googleCloudLocation") || prev.googleCloudLocation,
       agentSourceDir: v("AGENT_SOURCE_DIR", "agentSourceDir") || prev.agentSourceDir,
@@ -669,6 +732,50 @@ export default function DeployForm({ onDeployStarted }: Props) {
     }
   };
 
+  const fetchModelEndpointOptions = async () => {
+    const endpoint = config.modelEndpoint.trim();
+    if (!endpoint) {
+      setModelEndpointOptions([]);
+      setModelEndpointOptionsError("Enter the endpoint URL first.");
+      return;
+    }
+
+    setLoadingModelEndpointOptions(true);
+    setModelEndpointOptionsError(null);
+    try {
+      const res = await fetch("/api/configs/model-endpoint-models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint,
+          apiKey: config.modelEndpointApiKey.trim() || undefined,
+        }),
+      });
+      const data = await res.json() as { models?: ModelEndpointOption[]; error?: string };
+      if (!res.ok) {
+        throw new Error(data.error || `Failed to fetch models (${res.status})`);
+      }
+      const options = Array.isArray(data.models) ? data.models : [];
+      setModelEndpointOptions(options);
+      if (options.length > 0) {
+        setConfig((prev) => {
+          const selected = options.find((option) => option.id === prev.modelEndpointModel) || options[0];
+          return {
+            ...prev,
+            modelEndpointModels: options,
+            modelEndpointModel: prev.modelEndpointModel || selected.id,
+            modelEndpointModelLabel: selected.name,
+          };
+        });
+      }
+    } catch (err) {
+      setModelEndpointOptions([]);
+      setModelEndpointOptionsError(err instanceof Error ? err.message : "Failed to fetch endpoint models");
+    } finally {
+      setLoadingModelEndpointOptions(false);
+    }
+  };
+
   const handleDeploy = async () => {
     if (!isValid) {
       return;
@@ -685,6 +792,7 @@ export default function DeployForm({ onDeployStarted }: Props) {
         agentName: config.agentName,
         agentDisplayName: config.agentDisplayName || config.agentName,
         image: trimToUndefined(config.image),
+        containerRunArgs: mode === "local" ? trimToUndefined(config.containerRunArgs) : undefined,
         secretsProvidersJson: trimToUndefined(config.secretsProvidersJson),
         anthropicApiKeyRef,
         openaiApiKeyRef,
@@ -730,10 +838,15 @@ export default function DeployForm({ onDeployStarted }: Props) {
           config.sandboxEnabled ? config.sandboxSshKnownHosts || undefined : undefined,
         anthropicApiKey: !anthropicApiKeyRef ? trimToUndefined(config.anthropicApiKey) : undefined,
         openaiApiKey: !openaiApiKeyRef ? trimToUndefined(config.openaiApiKey) : undefined,
+        anthropicModel: trimToUndefined(config.anthropicModel),
+        openaiModel: trimToUndefined(config.openaiModel),
         agentModel: config.agentModel || undefined,
         openaiCompatibleEndpointsEnabled: config.openaiCompatibleEndpointsEnabled,
         modelEndpoint: trimToUndefined(config.modelEndpoint),
         modelEndpointApiKey: trimToUndefined(config.modelEndpointApiKey),
+        modelEndpointModel: trimToUndefined(config.modelEndpointModel),
+        modelEndpointModelLabel: trimToUndefined(config.modelEndpointModelLabel),
+        modelEndpointModels: config.modelEndpointModels.length > 0 ? config.modelEndpointModels : undefined,
         port: parseInt(config.port, 10) || 18789,
         vertexEnabled: vertexEnabled || undefined,
         vertexProvider: vertexEnabled ? vertexProvider : undefined,
@@ -786,15 +899,21 @@ export default function DeployForm({ onDeployStarted }: Props) {
       `OPENCLAW_AGENT_NAME=${config.agentName}`,
       `OPENCLAW_DISPLAY_NAME=${config.agentDisplayName}`,
       `OPENCLAW_IMAGE=${config.image}`,
+      `OPENCLAW_CONTAINER_RUN_ARGS=${config.containerRunArgs}`,
       `OPENCLAW_PORT=${config.port}`,
       `AGENT_SOURCE_DIR=${config.agentSourceDir}`,
       "",
       `INFERENCE_PROVIDER=${inferenceProvider}`,
       `ANTHROPIC_API_KEY=${anthropicApiKeyRef ? "" : config.anthropicApiKey}`,
       `OPENAI_API_KEY=${openaiApiKeyRef ? "" : config.openaiApiKey}`,
+      `ANTHROPIC_MODEL=${config.anthropicModel}`,
+      `OPENAI_MODEL=${config.openaiModel}`,
       `OPENAI_COMPATIBLE_ENDPOINTS_ENABLED=${config.openaiCompatibleEndpointsEnabled}`,
       `MODEL_ENDPOINT=${config.modelEndpoint}`,
       `MODEL_ENDPOINT_API_KEY=${config.modelEndpointApiKey}`,
+      `MODEL_ENDPOINT_MODEL=${config.modelEndpointModel}`,
+      `MODEL_ENDPOINT_MODEL_LABEL=${config.modelEndpointModelLabel}`,
+      `MODEL_ENDPOINT_MODELS_B64=${encodeBase64(JSON.stringify(config.modelEndpointModels))}`,
       `AGENT_MODEL=${config.agentModel}`,
       "",
       `VERTEX_ENABLED=${isVertex}`,
@@ -1264,16 +1383,32 @@ export default function DeployForm({ onDeployStarted }: Props) {
         </details>
 
         {mode === "local" && (
-          <div className="form-group">
-            <label>Port</label>
-            <input
-              type="text"
-              placeholder="18789"
-              value={config.port}
-              onChange={(e) => update("port", e.target.value)}
-            />
-            <div className="hint">Local port for the gateway UI</div>
-          </div>
+          <>
+            <div className="form-group">
+              <label>Port</label>
+              <input
+                type="text"
+                placeholder="18789"
+                value={config.port}
+                onChange={(e) => update("port", e.target.value)}
+              />
+              <div className="hint">Local port for the gateway UI</div>
+            </div>
+
+            <div className="form-group">
+              <label>Additional podman/docker run args <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>(optional)</span></label>
+              <input
+                type="text"
+                placeholder="e.g., --userns=keep-id --security-opt label=disable"
+                value={config.containerRunArgs}
+                onChange={(e) => update("containerRunArgs", e.target.value)}
+              />
+              <div className="hint">
+                Appended to the generated <code>{defaults?.containerRuntime || "podman"}</code> <code>run</code> command before the image name.
+                Use this for extra runtime flags such as <code>--userns=keep-id</code>, <code>--device</code>, or additional <code>-v</code> mounts.
+              </div>
+            </div>
+          </>
         )}
 
         {mode === "ssh" && (
@@ -1388,6 +1523,12 @@ export default function DeployForm({ onDeployStarted }: Props) {
             <div className="hint" style={{ marginBottom: "0.75rem" }}>
               The selected primary provider and model above control the default route. The settings below are saved independently so Anthropic, OpenAI, and OpenAI-compatible endpoints can also be used for fallbacks.
             </div>
+            <div className="hint" style={{ marginBottom: "0.75rem" }}>
+              Configure these independently when you want one deployment to have:
+              {" "}Anthropic (<code>ANTHROPIC_API_KEY</code>),
+              {" "}OpenAI (<code>OPENAI_API_KEY</code>), and
+              {" "}an OpenAI-compatible endpoint with its own token (<code>MODEL_ENDPOINT</code> + <code>MODEL_ENDPOINT_API_KEY</code>).
+            </div>
             <div className="form-group">
               <label>Anthropic API Key</label>
               <input
@@ -1403,9 +1544,21 @@ export default function DeployForm({ onDeployStarted }: Props) {
                   : "Saved for Anthropic primary or fallback usage."}
               </div>
             </div>
+            <div className="form-group">
+              <label>Anthropic Model</label>
+              <input
+                type="text"
+                placeholder="e.g., claude-sonnet-4-6"
+                value={config.anthropicModel}
+                onChange={(e) => update("anthropicModel", e.target.value)}
+              />
+              <div className="hint">
+                Adds this Anthropic model to the OpenClaw model picker as <code>anthropic/&lt;model&gt;</code>.
+              </div>
+            </div>
 
             <div className="form-group">
-              <label>OpenAI / Compatible API Key</label>
+              <label>OpenAI API Key</label>
               <input
                 type="password"
                 autoComplete="new-password"
@@ -1416,7 +1569,19 @@ export default function DeployForm({ onDeployStarted }: Props) {
               <div className="hint">
                 {defaults?.hasOpenaiKey
                   ? "Detected OPENAI_API_KEY from server environment — leave blank to use it"
-                  : "Saved for OpenAI primary or fallback usage, and used for OpenAI-compatible endpoints when needed."}
+                  : "Saved for OpenAI primary or fallback usage only."}
+              </div>
+            </div>
+            <div className="form-group">
+              <label>OpenAI Model</label>
+              <input
+                type="text"
+                placeholder="e.g., gpt-5"
+                value={config.openaiModel}
+                onChange={(e) => update("openaiModel", e.target.value)}
+              />
+              <div className="hint">
+                Adds this OpenAI model to the OpenClaw model picker as <code>openai/&lt;model&gt;</code>.
               </div>
             </div>
 
@@ -1600,31 +1765,86 @@ export default function DeployForm({ onDeployStarted }: Props) {
 
             <div className="form-group">
               <label>OpenAI-Compatible Model Endpoint</label>
-              <input
-                type="text"
-                placeholder="http://vllm.openclaw-llms.svc.cluster.local/v1"
-                value={config.modelEndpoint}
-                onChange={(e) => update("modelEndpoint", e.target.value)}
-              />
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <input
+                  type="text"
+                  placeholder="http://vllm.openclaw-llms.svc.cluster.local/v1"
+                  value={config.modelEndpoint}
+                  onChange={(e) => update("modelEndpoint", e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={fetchModelEndpointOptions}
+                  disabled={loadingModelEndpointOptions}
+                >
+                  {loadingModelEndpointOptions ? "Fetching..." : "Fetch Models"}
+                </button>
+              </div>
               <div className="hint">
                 Optional. Save a local or open-source OpenAI-compatible endpoint here for primary use or fallback routing.
               </div>
-            </div>
-            {config.modelEndpoint && (
-              <div className="form-group">
-                <label>Endpoint API Token (`MODEL_ENDPOINT_API_KEY`)</label>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="Optional bearer token for the endpoint"
-                  value={config.modelEndpointApiKey}
-                  onChange={(e) => update("modelEndpointApiKey", e.target.value)}
-                />
-                <div className="hint">
-                  Optional. Use this when the OpenAI-compatible endpoint requires a different token than your general OpenAI credential. This maps to <code>MODEL_ENDPOINT_API_KEY</code>.
-                </div>
+              <div className="hint" style={{ marginTop: "0.35rem" }}>
+                If you paste just the service URL, the installer will normalize it to a <code>/v1</code> API base for runtime requests.
               </div>
-            )}
+              {modelEndpointOptionsError && (
+                <div className="hint" style={{ color: "#e74c3c", marginTop: "0.35rem" }}>
+                  {modelEndpointOptionsError}
+                </div>
+              )}
+            </div>
+            <div className="form-group">
+              <label>OpenAI-Compatible Model Name</label>
+              {modelEndpointOptions.length > 0 ? (
+                <select
+                  value={config.modelEndpointModel}
+                  onChange={(e) => {
+                    const selected = modelEndpointOptions.find((option) => option.id === e.target.value);
+                    setConfig((prev) => ({
+                      ...prev,
+                      modelEndpointModel: e.target.value,
+                      modelEndpointModelLabel: selected?.name || e.target.value,
+                    }));
+                  }}
+                >
+                  {modelEndpointOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name === option.id ? option.id : `${option.name} (${option.id})`}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="e.g., mistral-small-24b-w8a8"
+                  value={config.modelEndpointModel}
+                  onChange={(e) =>
+                    setConfig((prev) => ({
+                      ...prev,
+                      modelEndpointModel: e.target.value,
+                      modelEndpointModelLabel: e.target.value,
+                    }))
+                  }
+                />
+              )}
+              <div className="hint">
+                The model ID served by that endpoint. Use the exact name the endpoint expects, such as <code>mistral-small-24b-w8a8</code>.
+              </div>
+            </div>
+            <div className="form-group">
+              <label>OpenAI-Compatible Endpoint API Key (`MODEL_ENDPOINT_API_KEY`)</label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                placeholder="API key for the OpenAI-compatible endpoint"
+                value={config.modelEndpointApiKey}
+                onChange={(e) => update("modelEndpointApiKey", e.target.value)}
+              />
+              <div className="hint">
+                Separate from <code>OPENAI_API_KEY</code>. Use this when your OpenAI-compatible endpoint requires its own token.
+              </div>
+            </div>
 
           </div>
         </details>

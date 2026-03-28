@@ -35,7 +35,8 @@ import { startOtelSidecar, stopOtelSidecar, startJaegerSidecar, otelContainerNam
 import { JAEGER_UI_PORT } from "./otel.js";
 import { agentWorkspaceDir, installerLocalInstanceDir, openclawHomeDir } from "../paths.js";
 import {
-  buildDefaultAgentModelCatalog,
+  buildConfiguredAgentModelCatalog,
+  CUSTOM_ENDPOINT_PROVIDER,
   generateToken,
   normalizeModelRef,
   usesDefaultEnvSecretRef,
@@ -95,6 +96,70 @@ export function applyGatewayRuntimeConfig(
       },
     },
   };
+}
+
+export function parseContainerRunArgs(value?: string): string[] {
+  const input = value?.trim();
+  if (!input) {
+    return [];
+  }
+
+  const args: string[] = [];
+  let current = "";
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let escaping = false;
+
+  const pushCurrent = () => {
+    if (current) {
+      args.push(current);
+      current = "";
+    }
+  };
+
+  for (const char of input) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      if (inSingleQuote) {
+        current += char;
+      } else {
+        escaping = true;
+      }
+      continue;
+    }
+
+    if (char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+
+    if (char === "\"" && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && /\s/.test(char)) {
+      pushCurrent();
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (escaping) {
+    throw new Error("Invalid container run args: trailing escape");
+  }
+  if (inSingleQuote || inDoubleQuote) {
+    throw new Error("Invalid container run args: unterminated quote");
+  }
+
+  pushCurrent();
+  return args;
 }
 
 function resolveImage(config: DeployConfig): string {
@@ -165,7 +230,9 @@ function deriveModel(config: DeployConfig): string {
     return "openai/gpt-5.4";
   }
   if (config.inferenceProvider === "custom-endpoint") {
-    return "openai/default";
+    return config.modelEndpointModel?.trim()
+      ? normalizeModelRef(config, config.modelEndpointModel)
+      : `${CUSTOM_ENDPOINT_PROVIDER}/default`;
   }
   if (config.inferenceProvider === "vertex-anthropic") {
     return shouldUseLitellmProxy(config)
@@ -189,7 +256,9 @@ function deriveModel(config: DeployConfig): string {
     return "openai/gpt-5.4";
   }
   if (config.modelEndpoint) {
-    return "openai/default";
+    return config.modelEndpointModel?.trim()
+      ? `${CUSTOM_ENDPOINT_PROVIDER}/${config.modelEndpointModel.trim()}`
+      : `${CUSTOM_ENDPOINT_PROVIDER}/default`;
   }
   if (config.anthropicApiKey || config.anthropicApiKeyRef) {
     return "anthropic/claude-sonnet-4-6";
@@ -258,14 +327,40 @@ function attachSecretHandlingConfig(ocConfig: Record<string, unknown>, config: D
   }
   if (config.modelEndpoint?.trim()) {
     const providerApiKeyRef = modelEndpointApiKeyRef || openaiApiKeyRef;
-    const openaiProvider: Record<string, unknown> = {
-      ...((providersMap.openai as Record<string, unknown> | undefined) || {}),
+    const endpointProvider: Record<string, unknown> = {
+      ...((providersMap[CUSTOM_ENDPOINT_PROVIDER] as Record<string, unknown> | undefined) || {}),
       baseUrl: config.modelEndpoint.trim(),
+      api: "openai-completions",
     };
     if (providerApiKeyRef) {
-      openaiProvider.apiKey = cloneSecretRef(providerApiKeyRef);
+      endpointProvider.apiKey = cloneSecretRef(providerApiKeyRef);
     }
-    providersMap.openai = openaiProvider;
+    if (config.modelEndpointModel?.trim()) {
+      const modelId = config.modelEndpointModel.trim();
+      endpointProvider.models = [{ id: modelId, name: config.modelEndpointModelLabel?.trim() || modelId }];
+    }
+    const extraModels = (config.modelEndpointModels || [])
+      .map((option) => ({
+        id: String(option.id || "").trim(),
+        name: String(option.name || "").trim() || String(option.id || "").trim(),
+      }))
+      .filter((option) => option.id.length > 0);
+    if (extraModels.length > 0) {
+      const merged = new Map<string, { id: string; name: string }>();
+      for (const option of Array.isArray(endpointProvider.models)
+        ? endpointProvider.models as Array<{ id?: string; name?: string }>
+        : []) {
+        const id = String(option.id || "").trim();
+        if (id) {
+          merged.set(id, { id, name: String(option.name || "").trim() || id });
+        }
+      }
+      for (const option of extraModels) {
+        merged.set(option.id, option);
+      }
+      endpointProvider.models = Array.from(merged.values());
+    }
+    providersMap[CUSTOM_ENDPOINT_PROVIDER] = endpointProvider;
   }
 
   if (Object.keys(providersMap).length > 0) {
@@ -306,6 +401,15 @@ function subagentConfig(policy?: string): { allowAgents: string[] } {
     case "unrestricted": return { allowAgents: ["*"] };
     default: return { allowAgents: [] };
   }
+}
+
+function buildAgentModelConfig(config: DeployConfig, primaryModelRef: string): { primary: string; fallbacks?: string[] } {
+  const fallbacks = (config.modelFallbacks || [])
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0 && entry !== primaryModelRef);
+  return fallbacks.length > 0
+    ? { primary: primaryModelRef, fallbacks }
+    : { primary: primaryModelRef };
 }
 
 function buildOpenClawConfig(config: DeployConfig, gatewayToken: string): string {
@@ -360,8 +464,8 @@ function buildOpenClawConfig(config: DeployConfig, gatewayToken: string): string
     agents: {
       defaults: {
         workspace: "~/.openclaw/workspace",
-        model: { primary: model },
-        models: buildDefaultAgentModelCatalog(model),
+        model: buildAgentModelConfig(config, model),
+        models: buildConfiguredAgentModelCatalog(config, model),
         ...(buildSandboxConfig(config) ? { sandbox: buildSandboxConfig(config) } : {}),
       },
       list: [
@@ -370,7 +474,7 @@ function buildOpenClawConfig(config: DeployConfig, gatewayToken: string): string
           name: config.agentDisplayName || config.agentName,
           identity: { name: config.agentDisplayName || config.agentName },
           workspace: `~/.openclaw/workspace-${agentId}`,
-          model: { primary: model },
+          model: buildAgentModelConfig(config, model),
           subagents: sourceBundle?.mainAgent?.subagents || subagentConfig(config.subagentPolicy),
           ...(sourceBundle?.mainAgent?.tools ? { tools: sourceBundle.mainAgent.tools } : {}),
         },
@@ -715,6 +819,7 @@ function buildRunArgs(
   }
 
   runArgs.push(...localStateMountArgs(effectiveConfig));
+  runArgs.push(...parseContainerRunArgs(effectiveConfig.containerRunArgs));
   runArgs.push(image);
 
   // Bind to lan (0.0.0.0) so port mapping works from host into pod/container
@@ -1525,6 +1630,9 @@ something that requires the user's attention.`;
         `OPENCLAW_DISPLAY_NAME=${config.agentDisplayName || config.agentName}`,
         `OPENCLAW_IMAGE=${resolveImage(config)}`,
         `OPENCLAW_PORT=${config.port ?? DEFAULT_PORT}`,
+        ...(config.containerRunArgs
+          ? [`OPENCLAW_CONTAINER_RUN_ARGS=${config.containerRunArgs}`]
+          : []),
         `OPENCLAW_VOLUME=${volumeName(config)}`,
         `OPENCLAW_CONTAINER=${name}`,
         ``,
@@ -1552,8 +1660,17 @@ something that requires the user's attention.`;
       if (config.openaiApiKey && (!config.openaiApiKeyRef || usesDefaultEnvSecretRef(config.openaiApiKeyRef))) {
         lines.push(`OPENAI_API_KEY=${config.openaiApiKey}`);
       }
+      if (config.anthropicModel) {
+        lines.push(`ANTHROPIC_MODEL=${config.anthropicModel}`);
+      }
+      if (config.openaiModel) {
+        lines.push(`OPENAI_MODEL=${config.openaiModel}`);
+      }
       if (config.agentModel) {
         lines.push(`AGENT_MODEL=${config.agentModel}`);
+      }
+      if (config.modelFallbacks && config.modelFallbacks.length > 0) {
+        lines.push(`MODEL_FALLBACKS_B64=${encodeEnvValue(JSON.stringify(config.modelFallbacks))}`);
       }
       lines.push(`OPENAI_COMPATIBLE_ENDPOINTS_ENABLED=${config.openaiCompatibleEndpointsEnabled !== false}`);
       if (config.modelEndpoint) {
@@ -1561,6 +1678,15 @@ something that requires the user's attention.`;
       }
       if (config.modelEndpointApiKey) {
         lines.push(`MODEL_ENDPOINT_API_KEY=${config.modelEndpointApiKey}`);
+      }
+      if (config.modelEndpointModel) {
+        lines.push(`MODEL_ENDPOINT_MODEL=${config.modelEndpointModel}`);
+      }
+      if (config.modelEndpointModelLabel) {
+        lines.push(`MODEL_ENDPOINT_MODEL_LABEL=${config.modelEndpointModelLabel}`);
+      }
+      if (config.modelEndpointModels && config.modelEndpointModels.length > 0) {
+        lines.push(`MODEL_ENDPOINT_MODELS_B64=${encodeEnvValue(JSON.stringify(config.modelEndpointModels))}`);
       }
       if (config.vertexEnabled) {
         lines.push(`VERTEX_ENABLED=true`);

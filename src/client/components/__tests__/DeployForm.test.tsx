@@ -176,7 +176,11 @@ describe("DeployForm agent name validation (issue #7)", () => {
     await screen.findAllByRole("button", { name: /deploy openclaw/i });
 
     fireEvent.change(screen.getAllByPlaceholderText("e.g., lynx")[0], { target: { value: "lynx" } });
-    fireEvent.change(screen.getAllByRole("textbox").find((el) => el.tagName === "TEXTAREA") as HTMLTextAreaElement, {
+    const secretProvidersTextarea = screen.getAllByRole("textbox").find((element) =>
+      (element as HTMLTextAreaElement).placeholder.includes("{"),
+    );
+    expect(secretProvidersTextarea).toBeTruthy();
+    fireEvent.change(secretProvidersTextarea!, {
       target: { value: "{not json" },
     });
 
@@ -204,6 +208,25 @@ describe("DeployForm agent name validation (issue #7)", () => {
     expect(await screen.findByText("Anthropic SecretRef Source")).toBeTruthy();
     expect(screen.getByText("OpenAI SecretRef Source")).toBeTruthy();
     expect(screen.getByText("Telegram SecretRef Source")).toBeTruthy();
+  });
+
+  it("shows separate OpenAI and OpenAI-compatible endpoint key fields", async () => {
+    global.fetch = mockHealthResponse([
+      { mode: "local", title: "This Machine", description: "Run locally", available: true, priority: 0, builtIn: true },
+    ]);
+
+    render(<DeployForm onDeployStarted={() => {}} />);
+
+    await screen.findAllByRole("button", { name: /deploy openclaw/i });
+
+    fireEvent.click(screen.getByText("Additional Providers & Fallbacks"));
+
+    expect(await screen.findByText("OpenAI API Key")).toBeTruthy();
+    expect(screen.getByText("Anthropic Model")).toBeTruthy();
+    expect(screen.getByText("OpenAI Model")).toBeTruthy();
+    expect(screen.getByText("OpenAI-Compatible Model Endpoint")).toBeTruthy();
+    expect(screen.getByText("OpenAI-Compatible Model Name")).toBeTruthy();
+    expect(screen.getByText("OpenAI-Compatible Endpoint API Key (`MODEL_ENDPOINT_API_KEY`)")).toBeTruthy();
   });
 
   it("submits Anthropic and OpenAI credentials together while keeping one primary provider", async () => {
@@ -254,11 +277,23 @@ describe("DeployForm agent name validation (issue #7)", () => {
     fireEvent.change(screen.getByPlaceholderText("sk-ant-..."), { target: { value: "sk-ant-demo" } });
     fireEvent.change(screen.getByPlaceholderText("sk-..."), { target: { value: "sk-openai-demo" } });
     fireEvent.change(
+      screen.getByPlaceholderText("e.g., claude-sonnet-4-6"),
+      { target: { value: "claude-sonnet-4-6" } },
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("e.g., gpt-5"),
+      { target: { value: "gpt-5" } },
+    );
+    fireEvent.change(
       screen.getByPlaceholderText("http://vllm.openclaw-llms.svc.cluster.local/v1"),
       { target: { value: "http://localhost:8000/v1" } },
     );
     fireEvent.change(
-      screen.getByPlaceholderText("Optional bearer token for the endpoint"),
+      screen.getByPlaceholderText("e.g., mistral-small-24b-w8a8"),
+      { target: { value: "mistral-small-24b-w8a8" } },
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("API key for the OpenAI-compatible endpoint"),
       { target: { value: "endpoint-token" } },
     );
 
@@ -278,8 +313,11 @@ describe("DeployForm agent name validation (issue #7)", () => {
     expect(body.inferenceProvider).toBe("anthropic");
     expect(body.anthropicApiKey).toBe("sk-ant-demo");
     expect(body.openaiApiKey).toBe("sk-openai-demo");
+    expect(body.anthropicModel).toBe("claude-sonnet-4-6");
+    expect(body.openaiModel).toBe("gpt-5");
     expect(body.modelEndpoint).toBe("http://localhost:8000/v1");
     expect(body.modelEndpointApiKey).toBe("endpoint-token");
+    expect(body.modelEndpointModel).toBe("mistral-small-24b-w8a8");
   });
 
   it("submits the OpenAI-compatible endpoints toggle when disabled", async () => {
@@ -339,5 +377,210 @@ describe("DeployForm agent name validation (issue #7)", () => {
     const deployCall = fetchMock.mock.calls.find(([url]) => String(url) === "/api/deploy");
     const body = JSON.parse(String((deployCall?.[1] as RequestInit | undefined)?.body || "{}"));
     expect(body.openaiCompatibleEndpointsEnabled).toBe(false);
+  });
+
+  it("submits additional local container run args", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/health") {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "ok",
+            containerRuntime: "podman",
+            k8sAvailable: false,
+            k8sContext: "",
+            k8sNamespace: "",
+            isOpenShift: false,
+            version: "0.1.0",
+            deployers: [
+              { mode: "local", title: "This Machine", description: "Run locally", available: true, priority: 0, builtIn: true },
+            ],
+            defaults: {
+              hasAnthropicKey: false,
+              hasOpenaiKey: false,
+              hasTelegramToken: false,
+              telegramAllowFrom: "",
+              modelEndpoint: "",
+              prefix: "testuser",
+              image: "",
+              containerRuntime: "podman",
+            },
+          }),
+        };
+      }
+      if (url === "/api/deploy") {
+        return {
+          ok: true,
+          json: async () => ({ deployId: "deploy-123" }),
+        };
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    global.fetch = fetchMock as typeof global.fetch;
+
+    render(<DeployForm onDeployStarted={() => {}} />);
+
+    await screen.findAllByRole("button", { name: /deploy openclaw/i });
+
+    fireEvent.change(screen.getAllByPlaceholderText("e.g., lynx")[0], { target: { value: "lynx" } });
+    fireEvent.change(
+      screen.getByPlaceholderText("e.g., --userns=keep-id --security-opt label=disable"),
+      { target: { value: "--userns=keep-id -v '/tmp/my data:/data:Z'" } },
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /deploy openclaw/i }).at(-1)!);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/deploy",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    const deployCall = fetchMock.mock.calls.find(([url]) => String(url) === "/api/deploy");
+    const body = JSON.parse(String((deployCall?.[1] as RequestInit | undefined)?.body || "{}"));
+    expect(body.containerRunArgs).toBe("--userns=keep-id -v '/tmp/my data:/data:Z'");
+  });
+
+  it("fetches models from the OpenAI-compatible endpoint and selects the returned label", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/health") {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "ok",
+            containerRuntime: "podman",
+            k8sAvailable: false,
+            k8sContext: "",
+            k8sNamespace: "",
+            isOpenShift: false,
+            version: "0.1.0",
+            deployers: [
+              { mode: "local", title: "This Machine", description: "Run locally", available: true, priority: 0, builtIn: true },
+            ],
+            defaults: {
+              hasAnthropicKey: false,
+              hasOpenaiKey: false,
+              hasTelegramToken: false,
+              telegramAllowFrom: "",
+              modelEndpoint: "",
+              prefix: "testuser",
+              image: "",
+            },
+          }),
+        };
+      }
+      if (url === "/api/configs/model-endpoint-models") {
+        return {
+          ok: true,
+          json: async () => ({
+            models: [
+              { id: "llama-4-scout-17b-16e-w4a16", name: "Llama 4 Scout 17B" },
+            ],
+          }),
+        };
+      }
+      if (url === "/api/deploy") {
+        return {
+          ok: true,
+          json: async () => ({ deployId: "deploy-123" }),
+        };
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    global.fetch = fetchMock as typeof global.fetch;
+
+    render(<DeployForm onDeployStarted={() => {}} />);
+
+    await screen.findAllByRole("button", { name: /deploy openclaw/i });
+
+    fireEvent.change(screen.getAllByPlaceholderText("e.g., lynx")[0], { target: { value: "lynx" } });
+    fireEvent.change(
+      screen.getByPlaceholderText("http://vllm.openclaw-llms.svc.cluster.local/v1"),
+      { target: { value: "https://example.com/v1" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
+
+    await screen.findByRole("option", { name: "Llama 4 Scout 17B (llama-4-scout-17b-16e-w4a16)" });
+
+    fireEvent.click(screen.getAllByRole("button", { name: /deploy openclaw/i }).at(-1)!);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/deploy",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    const deployCall = fetchMock.mock.calls.find(([url]) => String(url) === "/api/deploy");
+    const body = JSON.parse(String((deployCall?.[1] as RequestInit | undefined)?.body || "{}"));
+    expect(body.modelEndpointModel).toBe("llama-4-scout-17b-16e-w4a16");
+    expect(body.modelEndpointModelLabel).toBe("Llama 4 Scout 17B");
+    expect(body.modelEndpointModels).toEqual([
+      { id: "llama-4-scout-17b-16e-w4a16", name: "Llama 4 Scout 17B" },
+    ]);
+  });
+
+  it("clears fetched endpoint models when the endpoint changes", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/health") {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "ok",
+            containerRuntime: "podman",
+            k8sAvailable: false,
+            k8sContext: "",
+            k8sNamespace: "",
+            isOpenShift: false,
+            version: "0.1.0",
+            deployers: [
+              { mode: "local", title: "This Machine", description: "Run locally", available: true, priority: 0, builtIn: true },
+            ],
+            defaults: {
+              hasAnthropicKey: false,
+              hasOpenaiKey: false,
+              hasTelegramToken: false,
+              telegramAllowFrom: "",
+              modelEndpoint: "",
+              prefix: "testuser",
+              image: "",
+            },
+          }),
+        };
+      }
+      if (url === "/api/configs/model-endpoint-models") {
+        return {
+          ok: true,
+          json: async () => ({
+            models: [
+              { id: "llama-4-scout-17b-16e-w4a16", name: "Llama 4 Scout 17B" },
+            ],
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    global.fetch = fetchMock as typeof global.fetch;
+
+    render(<DeployForm onDeployStarted={() => {}} />);
+
+    await screen.findAllByRole("button", { name: /deploy openclaw/i });
+
+    const endpointInput = screen.getByPlaceholderText("http://vllm.openclaw-llms.svc.cluster.local/v1");
+    fireEvent.change(endpointInput, { target: { value: "https://example.com/v1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
+
+    await screen.findByRole("option", { name: "Llama 4 Scout 17B (llama-4-scout-17b-16e-w4a16)" });
+
+    fireEvent.change(endpointInput, { target: { value: "https://mistral.example.com/v1" } });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("option", { name: "Llama 4 Scout 17B (llama-4-scout-17b-16e-w4a16)" }),
+      ).toBeNull();
+    });
   });
 });

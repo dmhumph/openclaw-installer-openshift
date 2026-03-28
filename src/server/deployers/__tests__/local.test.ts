@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyGatewayRuntimeConfig, shouldAlwaysPull } from "../local.js";
+import { applyGatewayRuntimeConfig, parseContainerRunArgs, shouldAlwaysPull } from "../local.js";
 
 describe("shouldAlwaysPull", () => {
   it("returns true for :latest tag", () => {
@@ -89,5 +89,23 @@ describe("applyGatewayRuntimeConfig", () => {
 
     expect(updated.gateway?.http?.endpoints?.chatCompletions?.enabled).toBe(false);
     expect(updated.gateway?.http?.endpoints?.responses?.enabled).toBe(false);
+  });
+});
+
+describe("parseContainerRunArgs", () => {
+  it("parses quoted runtime args into argv tokens", () => {
+    expect(
+      parseContainerRunArgs("--userns=keep-id -v '/tmp/my data:/data:Z' --device /dev/kvm"),
+    ).toEqual([
+      "--userns=keep-id",
+      "-v",
+      "/tmp/my data:/data:Z",
+      "--device",
+      "/dev/kvm",
+    ]);
+  });
+
+  it("rejects unterminated quotes", () => {
+    expect(() => parseContainerRunArgs("--label 'broken")).toThrow("unterminated quote");
   });
 });

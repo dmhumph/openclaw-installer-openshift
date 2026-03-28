@@ -14,6 +14,7 @@ import {
 import { discoverK8sInstances } from "../deployers/kubernetes.js";
 import { isClusterReachable } from "../services/k8s.js";
 import { registry } from "../deployers/registry.js";
+import { parseContainerRunArgs } from "../deployers/local.js";
 import { createLogCallback, sendStatus } from "../ws.js";
 import type { DeployResult, DeploySecretRef } from "../deployers/types.js";
 
@@ -137,9 +138,15 @@ router.get("/", async (req, res) => {
               telegramBotTokenRef: decodeSavedJson<DeploySecretRef>(savedVars.TELEGRAM_BOT_TOKEN_REF_B64),
               anthropicApiKey: savedVars.ANTHROPIC_API_KEY || undefined,
               openaiApiKey: savedVars.OPENAI_API_KEY || undefined,
+              anthropicModel: savedVars.ANTHROPIC_MODEL || undefined,
+              openaiModel: savedVars.OPENAI_MODEL || undefined,
+              modelFallbacks: decodeSavedJson(savedVars.MODEL_FALLBACKS_B64),
               openaiCompatibleEndpointsEnabled:
                 savedVars.OPENAI_COMPATIBLE_ENDPOINTS_ENABLED === "false" ? false : undefined,
               modelEndpointApiKey: savedVars.MODEL_ENDPOINT_API_KEY || undefined,
+              modelEndpointModel: savedVars.MODEL_ENDPOINT_MODEL || undefined,
+              modelEndpointModelLabel: savedVars.MODEL_ENDPOINT_MODEL_LABEL || undefined,
+              modelEndpointModels: decodeSavedJson(savedVars.MODEL_ENDPOINT_MODELS_B64),
               telegramBotToken: savedVars.TELEGRAM_BOT_TOKEN || undefined,
               telegramAllowFrom: savedVars.TELEGRAM_ALLOW_FROM || undefined,
               sandboxEnabled: savedVars.SANDBOX_ENABLED === "true" || undefined,
@@ -478,6 +485,8 @@ router.get("/:id/command", async (req, res) => {
     const containerName = req.params.id;
     const litellmName = `${containerName}-litellm`;
     const pod = `${containerName}-pod`;
+    const savedVars = await readSavedConfig(containerName);
+    const savedRunArgs = parseContainerRunArgs(savedVars.OPENCLAW_CONTAINER_RUN_ARGS);
 
     // Detect if LiteLLM sidecar is running
     let hasLitellm = false;
@@ -578,6 +587,7 @@ router.get("/:id/command", async (req, res) => {
       }
     }
 
+    parts.push(...savedRunArgs);
     parts.push(config.Image || c.image);
     const cmd: string[] = config.Cmd || [];
     if (cmd.length > 0) {
@@ -746,6 +756,7 @@ async function findInstance(name: string): Promise<DeployResult | null> {
           containerRuntime: runtime,
           image: savedVars.OPENCLAW_IMAGE || undefined,
           port: savedVars.OPENCLAW_PORT ? parseInt(savedVars.OPENCLAW_PORT, 10) : undefined,
+          containerRunArgs: savedVars.OPENCLAW_CONTAINER_RUN_ARGS || undefined,
           inferenceProvider: savedVars.INFERENCE_PROVIDER as
             | "anthropic"
             | "openai"
@@ -761,9 +772,15 @@ async function findInstance(name: string): Promise<DeployResult | null> {
           telegramBotTokenRef: decodeSavedJson<DeploySecretRef>(savedVars.TELEGRAM_BOT_TOKEN_REF_B64),
           anthropicApiKey: savedVars.ANTHROPIC_API_KEY || undefined,
           openaiApiKey: savedVars.OPENAI_API_KEY || undefined,
+          anthropicModel: savedVars.ANTHROPIC_MODEL || undefined,
+          openaiModel: savedVars.OPENAI_MODEL || undefined,
+          modelFallbacks: decodeSavedJson(savedVars.MODEL_FALLBACKS_B64),
           openaiCompatibleEndpointsEnabled:
             savedVars.OPENAI_COMPATIBLE_ENDPOINTS_ENABLED === "false" ? false : undefined,
           modelEndpointApiKey: savedVars.MODEL_ENDPOINT_API_KEY || undefined,
+          modelEndpointModel: savedVars.MODEL_ENDPOINT_MODEL || undefined,
+          modelEndpointModelLabel: savedVars.MODEL_ENDPOINT_MODEL_LABEL || undefined,
+          modelEndpointModels: decodeSavedJson(savedVars.MODEL_ENDPOINT_MODELS_B64),
           agentModel: savedVars.AGENT_MODEL || undefined,
           modelEndpoint: savedVars.MODEL_ENDPOINT || undefined,
           agentSourceDir: savedVars.AGENT_SOURCE_DIR || undefined,
