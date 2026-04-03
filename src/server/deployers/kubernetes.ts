@@ -298,8 +298,8 @@ export class KubernetesDeployer implements Deployer {
 
     // 1f. ResourceQuota and LimitRange (per-namespace resource budget)
     if (config.quotaEnabled !== false) {
-      const cpuLimit = config.quotaCpu || "2";
-      const memLimit = config.quotaMemory || "4Gi";
+      const cpuLimit = config.quotaCpu || "4";
+      const memLimit = config.quotaMemory || "6Gi";
       log(`Applying resource quota: ${cpuLimit} CPU, ${memLimit} memory`);
 
       const quota = resourceQuotaManifest(ns, cpuLimit, memLimit);

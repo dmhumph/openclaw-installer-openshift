@@ -680,12 +680,14 @@ export function ingressNetworkPolicyManifest(ns: string): k8s.V1NetworkPolicy {
 
 /**
  * Create a ResourceQuota for the agent namespace.
- * Defaults: 2 CPU, 4Gi memory (configurable via DeployConfig).
+ * Defaults: 4 CPU, 6Gi memory (configurable via DeployConfig).
+ * The defaults account for the gateway container (1 CPU, 4Gi) plus
+ * sidecar containers (oauth-proxy, litellm, otel).
  */
 export function resourceQuotaManifest(
   ns: string,
-  cpuLimit: string = "2",
-  memoryLimit: string = "4Gi",
+  cpuLimit: string = "4",
+  memoryLimit: string = "6Gi",
 ): k8s.V1ResourceQuota {
   return {
     apiVersion: "v1",
