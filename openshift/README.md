@@ -127,97 +127,54 @@ Open `https://<route-host>` in your browser. The installer will detect OpenShift
 
 ## Post-Deployment: Connecting to the Agent Web UI
 
-After deploying an agent through the installer, the agent gets its own Route with an OAuth proxy for authentication. There are a few things to be aware of:
+After deploying an agent through the installer, the agent gets its own Route with an OAuth proxy for authentication. The connection flow is:
 
-### OAuth Proxy Configuration
+### 1. Open the agent route
 
-The installer deploys agents with an OpenShift OAuth proxy sidecar. The proxy must use ServiceAccount-based authentication (not an explicit client secret). If you see a **500 Internal Error** after logging in, check the oauth-proxy container logs:
+Find your agent's route URL in the installer's **Instances** tab, or run:
 
 ```bash
-oc logs <agent-pod> -n <agent-namespace> -c oauth-proxy --tail=20
+oc get route openclaw -n <agent-namespace> -o jsonpath='{.spec.host}'
 ```
 
-If you see `"unauthorized_client"`, the proxy args need to use `--openshift-service-account=<sa-name>` instead of `--client-secret-file`. Patch the deployment:
+### 2. Log in with OpenShift
+
+Click "Log in with OpenShift" and authenticate with your cluster credentials.
+
+### 3. Enter the gateway token
+
+The gateway token is available from the installer's **Instances** tab (click the instance to see connection details). You can also retrieve it via CLI:
 
 ```bash
-oc patch deployment <name> -n <namespace> --type='json' -p='[
-  {"op":"replace","path":"/spec/template/spec/containers/0/args","value":[
-    "--http-address=:8443",
-    "--https-address=",
-    "--provider=openshift",
-    "--upstream=http://localhost:18789",
-    "--openshift-service-account=openclaw-oauth-proxy",
-    "--cookie-secret-file=/etc/oauth/config/cookie_secret",
-    "--cookie-expire=23h0m0s",
-    "--pass-access-token",
-    "--scope=user:info",
-    "--skip-auth-regex=^/(metrics|api)"
-  ]}
-]'
+oc get secret openclaw-secrets -n <agent-namespace> -o jsonpath='{.data.OPENCLAW_GATEWAY_TOKEN}' | base64 -d
 ```
 
-### Gateway Token
+### 4. Approve device pairing
 
-To connect to the agent's Control UI, you need the gateway token. Extract it from the running pod:
+After entering the token, you'll see "pairing required." Approve it from the installer's **Instances** tab using the **Approve Pairing** button.
+
+Alternatively, approve via CLI:
 
 ```bash
-oc exec <agent-pod> -n <agent-namespace> -c gateway -- \
-  python3 -c "import json; d=json.load(open('/home/node/.openclaw/openclaw.json')); print(d['gateway']['auth']['token'])"
+oc exec $(oc get pods -n <agent-namespace> -l app=openclaw -o jsonpath='{.items[0].metadata.name}') \
+  -n <agent-namespace> -c gateway -- openclaw devices approve --latest
 ```
 
-Paste this token into the Control UI settings when prompted.
+### Security: EgressFirewall
 
-### Trusted Proxies and Device Pairing
+Each agent namespace automatically gets an OVN EgressFirewall that restricts outbound traffic to only the endpoints configured at deploy time:
 
-The gateway requires device pairing for web UI connections. When running behind the OAuth proxy in OpenShift, you need to configure trusted proxies so the gateway recognizes connections as local. If you see "pairing required" errors:
+- Cluster-internal traffic (pod network, service network, DNS)
+- Node network on ports 443/6443 (for OAuth and API server)
+- Model endpoint (e.g., Ollama IP and port)
+- LLM provider APIs (Anthropic, OpenAI) if API keys are configured
+- Telegram API if Telegram is enabled
+- **All other egress is denied**
 
-1. **Add trusted proxies** to the gateway config:
-
-```bash
-oc exec <agent-pod> -n <agent-namespace> -c gateway -- python3 -c "
-import json
-with open('/home/node/.openclaw/openclaw.json') as f:
-    d = json.load(f)
-d['gateway']['trustedProxies'] = ['127.0.0.1', '::1', '10.0.0.0/8']
-with open('/home/node/.openclaw/openclaw.json', 'w') as f:
-    json.dump(d, f, indent=2)
-print('Done')
-"
-```
-
-2. **Approve pending device pairing** after connecting from the web UI:
+To inspect the rules:
 
 ```bash
-oc exec <agent-pod> -n <agent-namespace> -c gateway -- python3 -c "
-import json, time
-with open('/home/node/.openclaw/devices/pending.json') as f:
-    pending = json.load(f)
-with open('/home/node/.openclaw/devices/paired.json') as f:
-    paired = json.load(f)
-for req_id, req in pending.items():
-    device_id = req['deviceId']
-    now_ms = int(time.time() * 1000)
-    paired[device_id] = {
-        'deviceId': device_id,
-        'publicKey': req['publicKey'],
-        'displayName': f'Web UI ({req[\"platform\"]})',
-        'platform': req['platform'],
-        'clientId': req['clientId'],
-        'clientMode': req['clientMode'],
-        'role': req['role'],
-        'roles': req['roles'],
-        'scopes': req['scopes'],
-        'approvedScopes': req['scopes'],
-        'tokens': {},
-        'createdAtMs': now_ms,
-        'approvedAtMs': now_ms
-    }
-with open('/home/node/.openclaw/devices/paired.json', 'w') as f:
-    json.dump(paired, f, indent=2)
-with open('/home/node/.openclaw/devices/pending.json', 'w') as f:
-    json.dump({}, f)
-print('Approved', len(pending), 'device(s)')
-"
+oc get egressfirewall default -n <agent-namespace> -o yaml
 ```
 
 ## Ongoing Management
@@ -242,10 +199,8 @@ oc logs <agent-pod> -n <agent-namespace> -c gateway --tail=50
 |---------|-------|-----|
 | Build fails with `Source image rejected by policy` | Container registry not in `allowedRegistries` | Add the registry via `oc patch image.config.openshift.io/cluster` and wait for MCP rollout |
 | Pod stuck in `ImagePullBackOff` | Image not yet built, or registry policy not yet propagated | Wait for build to complete and MCP rollout, then delete the stuck pod |
-| 500 Internal Error after OAuth login | OAuth proxy using `--client-secret-file` instead of SA token | Patch deployment to use `--openshift-service-account=<sa>` (see above) |
-| "pairing required" in Control UI | Gateway doesn't recognize proxy as trusted | Add `trustedProxies` to gateway config, then approve pending device |
+| Agent can't reach model endpoint | EgressFirewall blocking traffic | Check `oc get egressfirewall -n <ns> -o yaml` and verify the endpoint IP/port is listed |
 | `oc login` fails with "no route to host" from iTerm2 | macOS Local Network permission not granted to iTerm2 | System Settings > Privacy & Security > Local Network > enable iTerm2 |
-| `oc login` works in Terminal but not iTerm2 | Same as above | Same fix -- toggle Local Network permission for iTerm2, restart iTerm2 |
 
 ## Architecture
 
