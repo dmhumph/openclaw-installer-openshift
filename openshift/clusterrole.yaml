@@ -25,3 +25,7 @@ rules:
   - apiGroups: [""]
     resources: ["pods/portforward"]
     verbs: ["create"]
+  # EgressFirewall (OVN) for agent namespace network security
+  - apiGroups: ["k8s.ovn.org"]
+    resources: ["egressfirewalls"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
