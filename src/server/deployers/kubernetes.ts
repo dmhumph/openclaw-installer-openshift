@@ -227,15 +227,21 @@ export class KubernetesDeployer implements Deployer {
         namespace: ns,
         plural: "egressfirewalls",
       };
+      let egressExists = false;
       try {
         await customApi.getNamespacedCustomObject({ ...egressParams, name: "default" });
+        egressExists = true;
+      } catch {
+        // does not exist
+      }
+      if (egressExists) {
         log("Updating EgressFirewall default...");
         await customApi.replaceNamespacedCustomObject({
           ...egressParams,
           name: "default",
           body: egressFw,
         });
-      } catch {
+      } else {
         log("Creating EgressFirewall default...");
         await customApi.createNamespacedCustomObject({ ...egressParams, body: egressFw });
       }

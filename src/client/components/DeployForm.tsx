@@ -943,6 +943,67 @@ export default function DeployForm({ onDeployStarted }: DeployFormProps) {
         {isClusterMode && (
           <details style={{ marginTop: "1rem" }}>
             <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+              Resource Quotas
+              <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>
+                {" "}Per-namespace CPU and memory limits
+              </span>
+            </summary>
+
+            <div className="card" style={{ marginTop: "0.75rem" }}>
+              <div className="form-group">
+                <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <input
+                    type="checkbox"
+                    checked={config.quotaEnabled}
+                    onChange={(e) =>
+                      setConfig((prev) => ({ ...prev, quotaEnabled: e.target.checked }))
+                    }
+                  />
+                  Enable resource quotas
+                </label>
+                <div className="hint">
+                  Enforce CPU and memory limits on the agent namespace. Prevents a single agent from consuming excessive cluster resources.
+                </div>
+              </div>
+
+              {config.quotaEnabled && (
+                <>
+                  <div className="form-group">
+                    <label>CPU Limit</label>
+                    <input
+                      type="text"
+                      aria-label="CPU Limit"
+                      placeholder="4"
+                      value={config.quotaCpu}
+                      onChange={(e) => update("quotaCpu", e.target.value)}
+                    />
+                    <div className="hint">
+                      Maximum CPU cores for the namespace (e.g., &quot;2&quot;, &quot;4&quot;). Must be enough for all containers (gateway + sidecars).
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Memory Limit</label>
+                    <input
+                      type="text"
+                      aria-label="Memory Limit"
+                      placeholder="6Gi"
+                      value={config.quotaMemory}
+                      onChange={(e) => update("quotaMemory", e.target.value)}
+                    />
+                    <div className="hint">
+                      Maximum memory for the namespace (e.g., &quot;4Gi&quot;, &quot;8Gi&quot;). Must be enough for all containers (gateway ~4Gi + sidecars).
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </details>
+        )}
+
+        {isClusterMode && (
+          <details style={{ marginTop: "1rem" }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>
               Kagenti A2A
               <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>
                 {" "}Optional: enable A2A sidecar + Kagenti namespace wiring

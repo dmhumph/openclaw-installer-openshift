@@ -136,6 +136,9 @@ export interface DeployFormConfig {
   cronEnabled: boolean;
   subagentPolicy: SubagentPolicy;
   namespace: string;
+  quotaEnabled: boolean;
+  quotaCpu: string;
+  quotaMemory: string;
   withA2a: boolean;
   a2aRealm: string;
   a2aKeycloakNamespace: string;
