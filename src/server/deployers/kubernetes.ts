@@ -31,6 +31,7 @@ import {
   deploymentManifest,
   egressFirewallManifest,
   sccRoleBindingManifest,
+  policyConfigMapManifest,
 } from "./k8s-manifests.js";
 import {
   a2aBridgeConfigMapManifest,
@@ -249,6 +250,34 @@ export class KubernetesDeployer implements Deployer {
         "RoleBinding openclaw-agent-scc",
         log,
       );
+    }
+
+    // 1d. Policy ConfigMap (SOUL.md, AGENTS.md — read-only baseline)
+    {
+      // Read default policies from the installer namespace
+      let policies: Record<string, string> = {};
+      try {
+        const installerNs = process.env.OPENCLAW_INSTALLER_NAMESPACE || "openclaw-installer";
+        const defaultPolicies = await core.readNamespacedConfigMap({
+          name: "openclaw-default-policies",
+          namespace: installerNs,
+        });
+        policies = defaultPolicies.data || {};
+        log(`Loaded ${Object.keys(policies).length} default policy file(s)`);
+      } catch {
+        log("Warning: openclaw-default-policies ConfigMap not found — skipping policy mount");
+      }
+
+      if (Object.keys(policies).length > 0) {
+        const policyCm = policyConfigMapManifest(ns, policies);
+        await applyResource(
+          () => core.readNamespacedConfigMap({ name: "openclaw-policies", namespace: ns }),
+          () => core.createNamespacedConfigMap({ namespace: ns, body: policyCm }),
+          () => core.replaceNamespacedConfigMap({ name: "openclaw-policies", namespace: ns, body: policyCm }),
+          "ConfigMap openclaw-policies",
+          log,
+        );
+      }
     }
 
     // 2. PVC (immutable — skip if exists)
@@ -756,6 +785,7 @@ echo "Config initialized"
         const rbac = loadKubeConfig().makeApiClient(k8s.RbacAuthorizationV1Api);
         await rbac.deleteNamespacedRoleBinding({ name: "openclaw-agent-scc", namespace: ns });
       }},
+      { name: "ConfigMap openclaw-policies", fn: () => core.deleteNamespacedConfigMap({ name: "openclaw-policies", namespace: ns }) },
       { name: "PVC", fn: () => core.deleteNamespacedPersistentVolumeClaim({ name: "openclaw-home-pvc", namespace: ns }) },
     ];
 

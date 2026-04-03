@@ -8,6 +8,7 @@ resources:
   - clusterrolebinding.yaml
   - scc.yaml
   - scc-clusterrole.yaml
+  - policy-configmap.yaml
   - secret.yaml
   - pvc.yaml
   - buildconfig.yaml

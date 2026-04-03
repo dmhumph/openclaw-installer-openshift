@@ -307,6 +307,15 @@ ${copyLines}
 find -L /agents-tree -mindepth 1 -type d -name 'workspace-*' -exec sh -c 'base="$(basename "$1")"; ${workspaceRouting}; mkdir -p "$dest"; cp -r "$1"/* "$dest"/ 2>/dev/null || true' _ {} \\;
 cp -r /skills-src/. /home/node/.openclaw/skills/ 2>/dev/null || true
 cp /cron-src/jobs.json /home/node/.openclaw/cron/jobs.json 2>/dev/null || true
+# Copy default policies into workspace (user-editable copies)
+if [ -d /policies ]; then
+  for f in /policies/*; do
+    fname=$(basename "$f")
+    dest="/home/node/.openclaw/workspace-${id}/$fname"
+    # Only copy if the file doesn't already exist (preserve user edits)
+    [ ! -f "$dest" ] && cp "$f" "$dest" 2>/dev/null || true
+  done
+fi
 chown -R 1000:1000 /home/node/.openclaw 2>/dev/null || true
 echo "Config initialized"
 `.trim();
@@ -381,6 +390,7 @@ echo "Config initialized"
                 { name: "agent-tree-config", mountPath: "/agents-tree", readOnly: true },
                 { name: "skills-config", mountPath: "/skills-src", readOnly: true },
                 { name: "cron-config", mountPath: "/cron-src", readOnly: true },
+                { name: "policies", mountPath: "/policies", readOnly: true },
               ],
             },
           ],
@@ -429,6 +439,8 @@ echo "Config initialized"
               volumeMounts: [
                 { name: "openclaw-home", mountPath: "/home/node/.openclaw" },
                 { name: "tmp-volume", mountPath: "/tmp" },
+                // Read-only policy files (SOUL.md, AGENTS.md) — tamper-proof baseline
+                { name: "policies", mountPath: "/policies", readOnly: true },
                 // Only mount GCP creds on gateway in direct (non-proxy) mode
                 ...(!useProxy && config.gcpServiceAccountJson
                   ? [{ name: "gcp-sa", mountPath: "/home/node/gcp", readOnly: true }]
@@ -558,6 +570,13 @@ echo "Config initialized"
               },
             },
             { name: "tmp-volume", emptyDir: {} },
+            {
+              name: "policies",
+              configMap: {
+                name: "openclaw-policies",
+                optional: true,
+              },
+            },
             ...(config.gcpServiceAccountJson
               ? [{ name: "gcp-sa", secret: { secretName: "gcp-sa" } }]
               : []),
@@ -580,6 +599,31 @@ echo "Config initialized"
         },
       },
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Policy ConfigMap — cluster-wide SOUL.md and AGENTS.md defaults
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a ConfigMap containing the default policy files (SOUL.md, AGENTS.md)
+ * for an agent namespace. These are mounted read-only into the gateway container
+ * as the security policy baseline.
+ */
+export function policyConfigMapManifest(
+  ns: string,
+  policies: Record<string, string>,
+): k8s.V1ConfigMap {
+  return {
+    apiVersion: "v1",
+    kind: "ConfigMap",
+    metadata: {
+      name: "openclaw-policies",
+      namespace: ns,
+      labels: { app: "openclaw", "app.kubernetes.io/managed-by": "openclaw-installer" },
+    },
+    data: policies,
   };
 }
 
