@@ -326,7 +326,11 @@ function attachSecretHandlingConfig(ocConfig: Record<string, unknown>, config: D
     : shouldAutoEnvRef(config, config.openaiApiKeyRef, config.openaiApiKey)
       ? envSecretRef("OPENAI_API_KEY")
       : undefined;
-  const modelEndpointApiKeyRef = config.modelEndpointApiKey ? envSecretRef("MODEL_ENDPOINT_API_KEY") : undefined;
+  // Always create the secret ref when a model endpoint is configured.
+  // Endpoints like Ollama don't require an API key, but the gateway still
+  // expects an apiKey ref on the provider. The secret will contain a dummy
+  // value ("not-required") when the user hasn't provided a real key.
+  const modelEndpointApiKeyRef = config.modelEndpoint?.trim() ? envSecretRef("MODEL_ENDPOINT_API_KEY") : undefined;
   if (openaiApiKeyRef) {
     if (openaiApiKeyRef.source === "env" && openaiApiKeyRef.provider === "default") {
       shouldDefineDefaultEnvProvider = true;
