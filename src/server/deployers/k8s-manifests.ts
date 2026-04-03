@@ -579,3 +579,157 @@ echo "Config initialized"
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// EgressFirewall (OVN-Kubernetes, k8s.ovn.org/v1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a URL and extract the hostname (or IP) and port.
+ * Returns undefined if the URL cannot be parsed.
+ */
+function parseEndpointHostPort(endpoint: string): { host: string; port: number } | undefined {
+  try {
+    const url = new URL(endpoint);
+    const host = url.hostname;
+    const port = url.port
+      ? Number(url.port)
+      : url.protocol === "https:" ? 443 : url.protocol === "http:" ? 80 : undefined;
+    if (!host || !port) return undefined;
+    return { host, port };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Returns true if the string looks like an IPv4 address.
+ */
+function isIPv4(s: string): boolean {
+  return /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(s);
+}
+
+interface EgressRule {
+  type: "Allow" | "Deny";
+  to: { cidrSelector?: string; dnsName?: string };
+  ports?: Array<{ protocol: string; port: number }>;
+}
+
+/**
+ * Build an OVN EgressFirewall manifest scoped to one agent namespace.
+ *
+ * Rules are derived dynamically from the DeployConfig:
+ *  - Cluster DNS and Kubernetes API are always allowed
+ *  - Model endpoint (Ollama, etc.) is allowed if configured
+ *  - Anthropic, OpenAI, Vertex, and Telegram APIs are allowed only when
+ *    the corresponding credentials / flags are present in the config
+ *  - Everything else is denied
+ *
+ * OVN requires exactly one EgressFirewall per namespace, named "default".
+ */
+export function egressFirewallManifest(
+  ns: string,
+  config: DeployConfig,
+): Record<string, unknown> {
+  const rules: EgressRule[] = [];
+
+  // ── Always-allowed: cluster-internal traffic ──
+
+  // Cluster DNS (CoreDNS in cluster network)
+  rules.push({
+    type: "Allow",
+    to: { cidrSelector: "10.128.0.0/14" }, // cluster pod network
+    ports: [
+      { protocol: "UDP", port: 53 },
+      { protocol: "TCP", port: 53 },
+    ],
+  });
+
+  // Kubernetes API / OpenShift API (service network)
+  rules.push({
+    type: "Allow",
+    to: { cidrSelector: "172.30.0.0/16" }, // cluster service network
+    ports: [
+      { protocol: "TCP", port: 443 },
+      { protocol: "TCP", port: 6443 },
+    ],
+  });
+
+  // ── Conditionally-allowed: external services based on config ──
+
+  // Custom model endpoint (e.g. Ollama)
+  if (config.modelEndpoint) {
+    const ep = parseEndpointHostPort(config.modelEndpoint);
+    if (ep) {
+      const to = isIPv4(ep.host)
+        ? { cidrSelector: `${ep.host}/32` }
+        : { dnsName: ep.host };
+      rules.push({
+        type: "Allow",
+        to,
+        ports: [{ protocol: "TCP", port: ep.port }],
+      });
+    }
+  }
+
+  // Anthropic API
+  if (config.anthropicApiKey || config.anthropicApiKeyRef) {
+    rules.push({
+      type: "Allow",
+      to: { dnsName: "api.anthropic.com" },
+      ports: [{ protocol: "TCP", port: 443 }],
+    });
+  }
+
+  // OpenAI API
+  if (config.openaiApiKey || config.openaiApiKeyRef) {
+    rules.push({
+      type: "Allow",
+      to: { dnsName: "api.openai.com" },
+      ports: [{ protocol: "TCP", port: 443 }],
+    });
+  }
+
+  // Google Cloud / Vertex AI
+  if (config.vertexEnabled) {
+    for (const dns of [
+      "oauth2.googleapis.com",
+      "aiplatform.googleapis.com",
+      "us-central1-aiplatform.googleapis.com",
+    ]) {
+      rules.push({
+        type: "Allow",
+        to: { dnsName: dns },
+        ports: [{ protocol: "TCP", port: 443 }],
+      });
+    }
+  }
+
+  // Telegram API
+  if (config.telegramEnabled || config.telegramBotToken || config.telegramBotTokenRef) {
+    rules.push({
+      type: "Allow",
+      to: { dnsName: "api.telegram.org" },
+      ports: [{ protocol: "TCP", port: 443 }],
+    });
+  }
+
+  // ── Default deny everything else ──
+  rules.push({
+    type: "Deny",
+    to: { cidrSelector: "0.0.0.0/0" },
+  });
+
+  return {
+    apiVersion: "k8s.ovn.org/v1",
+    kind: "EgressFirewall",
+    metadata: {
+      name: "default",
+      namespace: ns,
+      labels: { app: "openclaw", "app.kubernetes.io/managed-by": "openclaw-installer" },
+    },
+    spec: {
+      egress: rules,
+    },
+  };
+}

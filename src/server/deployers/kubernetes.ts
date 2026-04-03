@@ -29,6 +29,7 @@ import {
   secretManifest,
   serviceManifest,
   deploymentManifest,
+  egressFirewallManifest,
 } from "./k8s-manifests.js";
 import {
   a2aBridgeConfigMapManifest,
@@ -209,6 +210,31 @@ export class KubernetesDeployer implements Deployer {
           log,
         );
       }
+    }
+
+    // 1b. EgressFirewall (OVN — one per namespace, named "default")
+    {
+      const egressFw = egressFirewallManifest(ns, config);
+      const customApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+      const egressParams = {
+        group: "k8s.ovn.org",
+        version: "v1",
+        namespace: ns,
+        plural: "egressfirewalls",
+      };
+      try {
+        await customApi.getNamespacedCustomObject({ ...egressParams, name: "default" });
+        log("Updating EgressFirewall default...");
+        await customApi.replaceNamespacedCustomObject({
+          ...egressParams,
+          name: "default",
+          body: egressFw,
+        });
+      } catch {
+        log("Creating EgressFirewall default...");
+        await customApi.createNamespacedCustomObject({ ...egressParams, body: egressFw });
+      }
+      log("EgressFirewall default applied");
     }
 
     // 2. PVC (immutable — skip if exists)
@@ -703,6 +729,13 @@ echo "Config initialized"
         await customApi.deleteNamespacedCustomObject({
           group: "opentelemetry.io", version: "v1beta1", namespace: ns,
           plural: "opentelemetrycollectors", name: "openclaw-sidecar",
+        });
+      }},
+      { name: "EgressFirewall default", fn: async () => {
+        const customApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+        await customApi.deleteNamespacedCustomObject({
+          group: "k8s.ovn.org", version: "v1", namespace: ns,
+          plural: "egressfirewalls", name: "default",
         });
       }},
       { name: "PVC", fn: () => core.deleteNamespacedPersistentVolumeClaim({ name: "openclaw-home-pvc", namespace: ns }) },

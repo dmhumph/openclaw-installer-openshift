@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: openclaw-installer
+  labels:
+    app.kubernetes.io/name: openclaw-installer
+subjects:
+  - kind: ServiceAccount
+    name: openclaw-installer
+    namespace: openclaw-installer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: openclaw-installer

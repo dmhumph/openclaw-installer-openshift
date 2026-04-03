@@ -1,0 +1,2 @@
+# Do not commit secrets with real values
+# secret.yaml is tracked as a template with empty values

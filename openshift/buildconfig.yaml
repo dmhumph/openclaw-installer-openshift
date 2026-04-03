@@ -1,0 +1,38 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: openclaw-installer
+  namespace: openclaw-installer
+  labels:
+    app.kubernetes.io/name: openclaw-installer
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: openclaw-installer
+  namespace: openclaw-installer
+  labels:
+    app.kubernetes.io/name: openclaw-installer
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/sallyom/openclaw-installer.git
+      ref: main
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: openclaw-installer:latest
+  triggers:
+    - type: ConfigChange
+  resources:
+    limits:
+      memory: 2Gi
+      cpu: "2"
+    requests:
+      memory: 1Gi
+      cpu: "1"
