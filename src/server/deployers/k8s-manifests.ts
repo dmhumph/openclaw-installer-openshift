@@ -733,10 +733,13 @@ export function egressFirewallManifest(
   });
 
   // OpenShift node network — required for OAuth proxy to reach the OAuth server
-  // route and for API server access via node IPs
+  // route and for API server access via node IPs.
+  // Configurable via OPENCLAW_NODE_NETWORK env var (default: 10.0.0.0/8 covers
+  // most private networks; set to your cluster's node CIDR for tighter control).
+  const nodeNetwork = process.env.OPENCLAW_NODE_NETWORK || "10.0.0.0/8";
   rules.push({
     type: "Allow",
-    to: { cidrSelector: "192.168.0.0/24" },
+    to: { cidrSelector: nodeNetwork },
     ports: [
       { protocol: "TCP", port: 443 },
       { protocol: "TCP", port: 6443 },

@@ -33,6 +33,11 @@ spec:
               value: production
             - name: PORT
               value: "3000"
+            # Node network CIDR for EgressFirewall rules (OAuth/API access via node IPs).
+            # Set to your cluster's node subnet for tighter control (e.g., 192.168.1.0/24).
+            # Default: 10.0.0.0/8 (covers most private networks)
+            - name: OPENCLAW_NODE_NETWORK
+              value: "10.0.0.0/8"
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:

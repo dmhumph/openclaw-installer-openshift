@@ -13,7 +13,7 @@ Deploy the [OpenClaw Installer](https://github.com/sallyom/openclaw-installer) a
 ### 1. Clone this repo
 
 ```bash
-git clone http://192.168.0.110:3000/openclaw/openclaw-installer-openshift.git
+git clone https://github.com/dmhumph/openclaw-installer-openshift.git
 cd openclaw-installer-openshift
 ```
 
@@ -66,7 +66,7 @@ stringData:
   OPENAI_API_KEY: ""
 
   # Custom model endpoint URL (e.g., Ollama: http://your-ollama-host:11434/v1)
-  MODEL_ENDPOINT: "http://192.168.0.93:11434/v1"
+  MODEL_ENDPOINT: ""
 
   # API key for the custom endpoint (not needed for Ollama - leave blank)
   MODEL_ENDPOINT_API_KEY: ""
@@ -162,7 +162,11 @@ oc exec $(oc get pods -n <agent-namespace> -l app=openclaw -o jsonpath='{.items[
 
 ### Security: EgressFirewall
 
-Each agent namespace automatically gets an OVN EgressFirewall that restricts outbound traffic to only the endpoints configured at deploy time:
+Each agent namespace automatically gets an OVN EgressFirewall that restricts outbound traffic to only the endpoints configured at deploy time.
+
+**Node network CIDR**: The EgressFirewall allows traffic to your cluster's node network on ports 443/6443 (for OAuth and API server access). By default this is `10.0.0.0/8`. To tighten it to your specific subnet, set `OPENCLAW_NODE_NETWORK` in the installer deployment (e.g., `192.168.1.0/24`).
+
+**Rules generated:**
 
 - Cluster-internal traffic (pod network, service network, DNS)
 - Node network on ports 443/6443 (for OAuth and API server)

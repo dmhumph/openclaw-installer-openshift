@@ -17,7 +17,7 @@ spec:
   source:
     type: Git
     git:
-      uri: https://github.com/sallyom/openclaw-installer.git
+      uri: https://github.com/dmhumph/openclaw-installer-openshift.git
       ref: main
   strategy:
     type: Docker
