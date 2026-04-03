@@ -32,6 +32,9 @@ import {
   egressFirewallManifest,
   sccRoleBindingManifest,
   policyConfigMapManifest,
+  ingressNetworkPolicyManifest,
+  resourceQuotaManifest,
+  limitRangeManifest,
 } from "./k8s-manifests.js";
 import {
   a2aBridgeConfigMapManifest,
@@ -278,6 +281,44 @@ export class KubernetesDeployer implements Deployer {
           log,
         );
       }
+    }
+
+    // 1e. NetworkPolicy — ingress isolation (only OpenShift router)
+    {
+      const netApi = loadKubeConfig().makeApiClient(k8s.NetworkingV1Api);
+      const np = ingressNetworkPolicyManifest(ns);
+      await applyResource(
+        () => netApi.readNamespacedNetworkPolicy({ name: "openclaw-ingress-isolation", namespace: ns }),
+        () => netApi.createNamespacedNetworkPolicy({ namespace: ns, body: np }),
+        () => netApi.replaceNamespacedNetworkPolicy({ name: "openclaw-ingress-isolation", namespace: ns, body: np }),
+        "NetworkPolicy openclaw-ingress-isolation",
+        log,
+      );
+    }
+
+    // 1f. ResourceQuota and LimitRange (per-namespace resource budget)
+    if (config.quotaEnabled !== false) {
+      const cpuLimit = config.quotaCpu || "2";
+      const memLimit = config.quotaMemory || "4Gi";
+      log(`Applying resource quota: ${cpuLimit} CPU, ${memLimit} memory`);
+
+      const quota = resourceQuotaManifest(ns, cpuLimit, memLimit);
+      await applyResource(
+        () => core.readNamespacedResourceQuota({ name: "openclaw-quota", namespace: ns }),
+        () => core.createNamespacedResourceQuota({ namespace: ns, body: quota }),
+        () => core.replaceNamespacedResourceQuota({ name: "openclaw-quota", namespace: ns, body: quota }),
+        "ResourceQuota openclaw-quota",
+        log,
+      );
+
+      const lr = limitRangeManifest(ns);
+      await applyResource(
+        () => core.readNamespacedLimitRange({ name: "openclaw-limits", namespace: ns }),
+        () => core.createNamespacedLimitRange({ namespace: ns, body: lr }),
+        () => core.replaceNamespacedLimitRange({ name: "openclaw-limits", namespace: ns, body: lr }),
+        "LimitRange openclaw-limits",
+        log,
+      );
     }
 
     // 2. PVC (immutable — skip if exists)
@@ -786,6 +827,12 @@ echo "Config initialized"
         await rbac.deleteNamespacedRoleBinding({ name: "openclaw-agent-scc", namespace: ns });
       }},
       { name: "ConfigMap openclaw-policies", fn: () => core.deleteNamespacedConfigMap({ name: "openclaw-policies", namespace: ns }) },
+      { name: "NetworkPolicy openclaw-ingress-isolation", fn: async () => {
+        const netApi = loadKubeConfig().makeApiClient(k8s.NetworkingV1Api);
+        await netApi.deleteNamespacedNetworkPolicy({ name: "openclaw-ingress-isolation", namespace: ns });
+      }},
+      { name: "ResourceQuota openclaw-quota", fn: () => core.deleteNamespacedResourceQuota({ name: "openclaw-quota", namespace: ns }) },
+      { name: "LimitRange openclaw-limits", fn: () => core.deleteNamespacedLimitRange({ name: "openclaw-limits", namespace: ns }) },
       { name: "PVC", fn: () => core.deleteNamespacedPersistentVolumeClaim({ name: "openclaw-home-pvc", namespace: ns }) },
     ];
 

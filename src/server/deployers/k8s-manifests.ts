@@ -628,6 +628,120 @@ export function policyConfigMapManifest(
 }
 
 // ---------------------------------------------------------------------------
+// NetworkPolicy — ingress isolation (only allow OpenShift router)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a NetworkPolicy that denies all ingress except from the
+ * OpenShift router (openshift-ingress namespace). This isolates
+ * agent namespaces from each other — only the router can reach them.
+ */
+export function ingressNetworkPolicyManifest(ns: string): k8s.V1NetworkPolicy {
+  return {
+    apiVersion: "networking.k8s.io/v1",
+    kind: "NetworkPolicy",
+    metadata: {
+      name: "openclaw-ingress-isolation",
+      namespace: ns,
+      labels: { app: "openclaw", "app.kubernetes.io/managed-by": "openclaw-installer" },
+    },
+    spec: {
+      podSelector: {},  // applies to all pods in namespace
+      policyTypes: ["Ingress"],
+      ingress: [
+        {
+          // Allow traffic from OpenShift router pods
+          _from: [
+            {
+              namespaceSelector: {
+                matchLabels: {
+                  "network.openshift.io/policy-group": "ingress",
+                },
+              },
+            },
+          ],
+        },
+        {
+          // Allow pod-to-pod within the same namespace (oauth-proxy -> gateway)
+          _from: [
+            {
+              podSelector: {},
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ResourceQuota — per-namespace CPU/memory budget
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a ResourceQuota for the agent namespace.
+ * Defaults: 2 CPU, 4Gi memory (configurable via DeployConfig).
+ */
+export function resourceQuotaManifest(
+  ns: string,
+  cpuLimit: string = "2",
+  memoryLimit: string = "4Gi",
+): k8s.V1ResourceQuota {
+  return {
+    apiVersion: "v1",
+    kind: "ResourceQuota",
+    metadata: {
+      name: "openclaw-quota",
+      namespace: ns,
+      labels: { app: "openclaw", "app.kubernetes.io/managed-by": "openclaw-installer" },
+    },
+    spec: {
+      hard: {
+        "limits.cpu": cpuLimit,
+        "limits.memory": memoryLimit,
+        "requests.cpu": cpuLimit,
+        "requests.memory": memoryLimit,
+      },
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// LimitRange — default container resource limits
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a LimitRange so pods without explicit resource requests/limits
+ * get sensible defaults and don't bypass the ResourceQuota.
+ */
+export function limitRangeManifest(ns: string): k8s.V1LimitRange {
+  return {
+    apiVersion: "v1",
+    kind: "LimitRange",
+    metadata: {
+      name: "openclaw-limits",
+      namespace: ns,
+      labels: { app: "openclaw", "app.kubernetes.io/managed-by": "openclaw-installer" },
+    },
+    spec: {
+      limits: [
+        {
+          type: "Container",
+          _default: {
+            cpu: "500m",
+            memory: "512Mi",
+          },
+          defaultRequest: {
+            cpu: "100m",
+            memory: "128Mi",
+          },
+        },
+      ],
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // SCC RoleBinding — bind agent ServiceAccounts to openclaw-agent-scc
 // ---------------------------------------------------------------------------
 
