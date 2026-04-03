@@ -30,6 +30,7 @@ import {
   serviceManifest,
   deploymentManifest,
   egressFirewallManifest,
+  sccRoleBindingManifest,
 } from "./k8s-manifests.js";
 import {
   a2aBridgeConfigMapManifest,
@@ -235,6 +236,19 @@ export class KubernetesDeployer implements Deployer {
         await customApi.createNamespacedCustomObject({ ...egressParams, body: egressFw });
       }
       log("EgressFirewall default applied");
+    }
+
+    // 1c. SCC RoleBinding (bind agent SAs to openclaw-agent-scc)
+    {
+      const rb = sccRoleBindingManifest(ns) as k8s.V1ClusterRoleBinding;
+      const rbac = loadKubeConfig().makeApiClient(k8s.RbacAuthorizationV1Api);
+      await applyResource(
+        () => rbac.readNamespacedRoleBinding({ name: "openclaw-agent-scc", namespace: ns }),
+        () => rbac.createNamespacedRoleBinding({ namespace: ns, body: rb }),
+        () => rbac.replaceNamespacedRoleBinding({ name: "openclaw-agent-scc", namespace: ns, body: rb }),
+        "RoleBinding openclaw-agent-scc",
+        log,
+      );
     }
 
     // 2. PVC (immutable — skip if exists)
@@ -737,6 +751,10 @@ echo "Config initialized"
           group: "k8s.ovn.org", version: "v1", namespace: ns,
           plural: "egressfirewalls", name: "default",
         });
+      }},
+      { name: "RoleBinding openclaw-agent-scc", fn: async () => {
+        const rbac = loadKubeConfig().makeApiClient(k8s.RbacAuthorizationV1Api);
+        await rbac.deleteNamespacedRoleBinding({ name: "openclaw-agent-scc", namespace: ns });
       }},
       { name: "PVC", fn: () => core.deleteNamespacedPersistentVolumeClaim({ name: "openclaw-home-pvc", namespace: ns }) },
     ];

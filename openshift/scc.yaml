@@ -1,0 +1,46 @@
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: openclaw-agent-scc
+  labels:
+    app.kubernetes.io/name: openclaw-installer
+  annotations:
+    kubernetes.io/description: >
+      Restricted SCC for OpenClaw agent pods. Drops all capabilities,
+      enforces non-root, read-only root filesystem, and limits volume
+      types to ConfigMap, EmptyDir, Projected, Secret, and PVC.
+# No privileged access
+allowPrivilegedContainer: false
+allowPrivilegeEscalation: false
+# Drop all Linux capabilities
+requiredDropCapabilities:
+  - ALL
+allowedCapabilities: []
+# Non-root enforcement
+runAsUser:
+  type: MustRunAsNonRoot
+seLinuxContext:
+  type: MustRunAs
+fsGroup:
+  type: RunAsAny
+supplementalGroups:
+  type: RunAsAny
+# Read-only root filesystem (writable dirs via PVC and emptyDir mounts)
+readOnlyRootFilesystem: true
+# Restrict volume types
+volumes:
+  - configMap
+  - emptyDir
+  - projected
+  - secret
+  - persistentVolumeClaim
+# No host access
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowedHostPaths: []
+# Seccomp
+seccompProfiles:
+  - runtime/default

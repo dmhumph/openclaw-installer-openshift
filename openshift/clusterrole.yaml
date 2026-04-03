@@ -29,3 +29,12 @@ rules:
   - apiGroups: ["k8s.ovn.org"]
     resources: ["egressfirewalls"]
     verbs: ["get", "list", "create", "update", "patch", "delete"]
+  # RBAC management in agent namespaces (for SCC RoleBindings)
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings", "roles"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  # SCC usage — allow the installer to grant the openclaw-agent-scc
+  - apiGroups: ["security.openshift.io"]
+    resources: ["securitycontextconstraints"]
+    resourceNames: ["openclaw-agent-scc"]
+    verbs: ["use"]

@@ -6,6 +6,8 @@ resources:
   - serviceaccount.yaml
   - clusterrole.yaml
   - clusterrolebinding.yaml
+  - scc.yaml
+  - scc-clusterrole.yaml
   - secret.yaml
   - pvc.yaml
   - buildconfig.yaml

@@ -584,6 +584,44 @@ echo "Config initialized"
 }
 
 // ---------------------------------------------------------------------------
+// SCC RoleBinding — bind agent ServiceAccounts to openclaw-agent-scc
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a RoleBinding that grants the default and openclaw-oauth-proxy
+ * ServiceAccounts in the agent namespace permission to use the
+ * openclaw-agent-scc SecurityContextConstraints.
+ */
+export function sccRoleBindingManifest(ns: string): object {
+  return {
+    apiVersion: "rbac.authorization.k8s.io/v1",
+    kind: "RoleBinding",
+    metadata: {
+      name: "openclaw-agent-scc",
+      namespace: ns,
+      labels: { app: "openclaw", "app.kubernetes.io/managed-by": "openclaw-installer" },
+    },
+    roleRef: {
+      apiGroup: "rbac.authorization.k8s.io",
+      kind: "ClusterRole",
+      name: "openclaw-agent-scc-use",
+    },
+    subjects: [
+      {
+        kind: "ServiceAccount",
+        name: "default",
+        namespace: ns,
+      },
+      {
+        kind: "ServiceAccount",
+        name: "openclaw-oauth-proxy",
+        namespace: ns,
+      },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // EgressFirewall (OVN-Kubernetes, k8s.ovn.org/v1)
 // ---------------------------------------------------------------------------
 
