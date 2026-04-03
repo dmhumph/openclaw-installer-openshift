@@ -669,6 +669,18 @@ export function ingressNetworkPolicyManifest(ns: string): k8s.V1NetworkPolicy {
             },
           ],
         },
+        {
+          // Allow traffic from OpenShift host-network pods (API server, OAuth server)
+          _from: [
+            {
+              namespaceSelector: {
+                matchLabels: {
+                  "network.openshift.io/policy-group": "host-network",
+                },
+              },
+            },
+          ],
+        },
       ],
     },
   };
