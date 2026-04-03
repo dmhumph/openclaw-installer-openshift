@@ -140,7 +140,10 @@ export function secretManifest(ns: string, config: DeployConfig, gatewayToken: s
     data.OPENAI_API_KEY = config.openaiApiKey;
   }
   if (config.modelEndpoint) data.MODEL_ENDPOINT = config.modelEndpoint;
-  if (config.modelEndpointApiKey) data.MODEL_ENDPOINT_API_KEY = config.modelEndpointApiKey;
+  // Custom endpoints (e.g. Ollama) may not require an API key, but the gateway
+  // endpoint provider still expects one to be set. Use a dummy value when the
+  // user hasn't provided a key.
+  data.MODEL_ENDPOINT_API_KEY = config.modelEndpointApiKey || "not-required";
   if (config.telegramBotToken && (!config.telegramBotTokenRef || usesDefaultEnvSecretRef(config.telegramBotTokenRef))) {
     data.TELEGRAM_BOT_TOKEN = config.telegramBotToken;
   }
