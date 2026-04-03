@@ -21,9 +21,9 @@ rules:
   - apiGroups: ["route.openshift.io"]
     resources: ["routes", "routes/custom-host"]
     verbs: ["get", "list", "create", "update", "patch", "delete"]
-  # Port-forward support
+  # Port-forward and exec support (exec needed for device pairing approval)
   - apiGroups: [""]
-    resources: ["pods/portforward"]
+    resources: ["pods/portforward", "pods/exec"]
     verbs: ["create"]
   # EgressFirewall (OVN) for agent namespace network security
   - apiGroups: ["k8s.ovn.org"]
