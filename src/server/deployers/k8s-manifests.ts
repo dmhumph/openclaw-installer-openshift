@@ -635,20 +635,23 @@ export function egressFirewallManifest(
 
   // ── Always-allowed: cluster-internal traffic ──
 
-  // Cluster DNS (CoreDNS in cluster network)
+  // Cluster pod network (DNS, inter-pod communication)
   rules.push({
     type: "Allow",
-    to: { cidrSelector: "10.128.0.0/14" }, // cluster pod network
-    ports: [
-      { protocol: "UDP", port: 53 },
-      { protocol: "TCP", port: 53 },
-    ],
+    to: { cidrSelector: "10.128.0.0/14" },
   });
 
-  // Kubernetes API / OpenShift API (service network)
+  // Kubernetes / OpenShift service network (API server, OAuth, internal services)
   rules.push({
     type: "Allow",
-    to: { cidrSelector: "172.30.0.0/16" }, // cluster service network
+    to: { cidrSelector: "172.30.0.0/16" },
+  });
+
+  // OpenShift node network — required for OAuth proxy to reach the OAuth server
+  // route and for API server access via node IPs
+  rules.push({
+    type: "Allow",
+    to: { cidrSelector: "192.168.0.0/24" },
     ports: [
       { protocol: "TCP", port: 443 },
       { protocol: "TCP", port: 6443 },
