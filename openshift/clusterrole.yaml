@@ -24,7 +24,7 @@ rules:
   # Port-forward and exec support (exec needed for device pairing approval)
   - apiGroups: [""]
     resources: ["pods/portforward", "pods/exec"]
-    verbs: ["create"]
+    verbs: ["get", "create"]
   # EgressFirewall (OVN) for agent namespace network security
   - apiGroups: ["k8s.ovn.org"]
     resources: ["egressfirewalls"]
