@@ -83,6 +83,7 @@ export function createInitialDeployFormConfig(): DeployFormConfig {
     quotaEnabled: true,
     quotaCpu: "4",
     quotaMemory: "6Gi",
+    customEgressRules: [],
     withA2a: false,
     a2aRealm: "",
     a2aKeycloakNamespace: "keycloak",
@@ -306,6 +307,9 @@ export function applySavedVarsToConfig(
       quotaEnabled: vars.QUOTA_ENABLED === "false" || vars.quotaEnabled === false ? false : prev.quotaEnabled,
       quotaCpu: getStringVar(vars, "QUOTA_CPU", "quotaCpu") || prev.quotaCpu,
       quotaMemory: getStringVar(vars, "QUOTA_MEMORY", "quotaMemory") || prev.quotaMemory,
+      customEgressRules: Array.isArray(vars.customEgressRules)
+        ? (vars.customEgressRules as Array<{ destination: string; port: string; protocol: string }>)
+        : prev.customEgressRules,
       withA2a: vars.WITH_A2A === "true" || vars.withA2a === "true" || prev.withA2a,
       a2aRealm: getStringVar(vars, "A2A_REALM", "a2aRealm") || prev.a2aRealm,
       a2aKeycloakNamespace:
@@ -418,6 +422,15 @@ export function buildDeployRequestBody(params: {
     quotaEnabled: config.quotaEnabled,
     quotaCpu: config.quotaCpu || undefined,
     quotaMemory: config.quotaMemory || undefined,
+    customEgressRules: config.customEgressRules.length > 0
+      ? config.customEgressRules
+          .filter((r) => r.destination.trim() && r.port.trim())
+          .map((r) => ({
+            destination: r.destination.trim(),
+            port: parseInt(r.port, 10) || 443,
+            protocol: r.protocol || "TCP",
+          }))
+      : undefined,
     withA2a: config.withA2a || undefined,
     a2aRealm: config.withA2a ? trimToUndefined(config.a2aRealm) : undefined,
     a2aKeycloakNamespace: config.withA2a ? trimToUndefined(config.a2aKeycloakNamespace) : undefined,

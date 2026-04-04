@@ -106,10 +106,16 @@ export interface DeployConfig {
   agentSourceDir?: string; // Host directory with workspace-*, skills/, and cron/jobs.json to provision
   // Kubernetes mode
   namespace?: string;
-  // Resource quotas (optional — defaults: 2 CPU, 4Gi memory)
+  // Resource quotas (optional — defaults: 4 CPU, 6Gi memory)
   quotaCpu?: string;     // e.g. "2", "4"
   quotaMemory?: string;  // e.g. "4Gi", "8Gi"
   quotaEnabled?: boolean; // default: true
+  // Custom egress rules (additional endpoints beyond auto-generated ones)
+  customEgressRules?: Array<{
+    destination: string;  // DNS name (e.g. "github.com") or CIDR (e.g. "10.1.2.3/32")
+    port: number;         // e.g. 443, 8080
+    protocol?: string;    // "TCP" or "UDP", defaults to "TCP"
+  }>;
   withA2a?: boolean;
   a2aRealm?: string;
   a2aKeycloakNamespace?: string;

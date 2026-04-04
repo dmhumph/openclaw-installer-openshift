@@ -139,6 +139,7 @@ export interface DeployFormConfig {
   quotaEnabled: boolean;
   quotaCpu: string;
   quotaMemory: string;
+  customEgressRules: Array<{ destination: string; port: string; protocol: string }>;
   withA2a: boolean;
   a2aRealm: string;
   a2aKeycloakNamespace: string;

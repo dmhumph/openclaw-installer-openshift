@@ -823,6 +823,13 @@ function isIPv4(s: string): boolean {
   return /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(s);
 }
 
+/**
+ * Returns true if the string looks like a CIDR notation (IP/prefix).
+ */
+function isCIDR(s: string): boolean {
+  return /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/\d{1,2}$/.test(s);
+}
+
 interface EgressRule {
   type: "Allow" | "Deny";
   to: { cidrSelector?: string; dnsName?: string };
@@ -932,6 +939,24 @@ export function egressFirewallManifest(
       to: { dnsName: "api.telegram.org" },
       ports: [{ protocol: "TCP", port: 443 }],
     });
+  }
+
+  // ── Custom egress rules (user-specified additional endpoints) ──
+  if (config.customEgressRules && config.customEgressRules.length > 0) {
+    for (const rule of config.customEgressRules) {
+      const dest = rule.destination?.trim();
+      if (!dest) continue;
+      const protocol = rule.protocol || "TCP";
+      const port = rule.port || 443;
+      const to = (isIPv4(dest) || isCIDR(dest))
+        ? { cidrSelector: isCIDR(dest) ? dest : `${dest}/32` }
+        : { dnsName: dest };
+      rules.push({
+        type: "Allow",
+        to,
+        ports: [{ protocol, port }],
+      });
+    }
   }
 
   // ── Default deny everything else ──

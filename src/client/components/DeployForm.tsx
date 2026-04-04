@@ -1004,6 +1004,88 @@ export default function DeployForm({ onDeployStarted }: DeployFormProps) {
         {isClusterMode && (
           <details style={{ marginTop: "1rem" }}>
             <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+              Custom Egress Rules
+              <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>
+                {" "}Allow additional outbound endpoints (e.g., github.com)
+              </span>
+            </summary>
+
+            <div className="card" style={{ marginTop: "0.75rem" }}>
+              <div className="hint" style={{ marginBottom: "0.75rem" }}>
+                The EgressFirewall automatically allows your configured model endpoint and LLM provider APIs.
+                Add rules here for any additional endpoints your agent needs to reach (e.g., git repos, internal APIs).
+              </div>
+
+              {config.customEgressRules.map((rule, idx) => (
+                <div key={idx} style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem", alignItems: "center" }}>
+                  <input
+                    type="text"
+                    placeholder="github.com or 10.1.2.3/32"
+                    value={rule.destination}
+                    style={{ flex: 2 }}
+                    onChange={(e) => {
+                      const updated = [...config.customEgressRules];
+                      updated[idx] = { ...updated[idx], destination: e.target.value };
+                      setConfig((prev) => ({ ...prev, customEgressRules: updated }));
+                    }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="443"
+                    value={rule.port}
+                    style={{ flex: 0.5, minWidth: "70px" }}
+                    onChange={(e) => {
+                      const updated = [...config.customEgressRules];
+                      updated[idx] = { ...updated[idx], port: e.target.value };
+                      setConfig((prev) => ({ ...prev, customEgressRules: updated }));
+                    }}
+                  />
+                  <select
+                    value={rule.protocol}
+                    style={{ flex: 0.5, minWidth: "70px" }}
+                    onChange={(e) => {
+                      const updated = [...config.customEgressRules];
+                      updated[idx] = { ...updated[idx], protocol: e.target.value };
+                      setConfig((prev) => ({ ...prev, customEgressRules: updated }));
+                    }}
+                  >
+                    <option value="TCP">TCP</option>
+                    <option value="UDP">UDP</option>
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ padding: "0.25rem 0.5rem", fontSize: "0.85rem", color: "var(--danger)" }}
+                    onClick={() => {
+                      const updated = config.customEgressRules.filter((_, i) => i !== idx);
+                      setConfig((prev) => ({ ...prev, customEgressRules: updated }));
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ fontSize: "0.85rem" }}
+                onClick={() => {
+                  setConfig((prev) => ({
+                    ...prev,
+                    customEgressRules: [...prev.customEgressRules, { destination: "", port: "443", protocol: "TCP" }],
+                  }));
+                }}
+              >
+                + Add egress rule
+              </button>
+            </div>
+          </details>
+        )}
+
+        {isClusterMode && (
+          <details style={{ marginTop: "1rem" }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>
               Kagenti A2A
               <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>
                 {" "}Optional: enable A2A sidecar + Kagenti namespace wiring
