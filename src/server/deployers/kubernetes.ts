@@ -219,6 +219,17 @@ export class KubernetesDeployer implements Deployer {
       }
     }
 
+    // Skip security/isolation resources when deploying to the installer's own namespace.
+    // These resources (EgressFirewall, NetworkPolicy, Quotas, etc.) are designed for
+    // agent namespaces and would break the installer itself (blocking builds, API access).
+    const installerNs = process.env.OPENCLAW_INSTALLER_NAMESPACE || "openclaw-installer";
+    const isInstallerNamespace = ns === installerNs;
+
+    if (isInstallerNamespace) {
+      log("Deploying to installer namespace — skipping security isolation resources");
+    }
+
+    if (!isInstallerNamespace) {
     // 1b. EgressFirewall (OVN — one per namespace, named "default")
     {
       const egressFw = egressFirewallManifest(ns, config);
@@ -378,6 +389,7 @@ export class KubernetesDeployer implements Deployer {
         log(`Warning: PrometheusRule creation failed (monitoring may not be available): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    } // end if (!isInstallerNamespace)
 
     // 2. PVC (immutable — skip if exists)
     await applyResource(
