@@ -181,6 +181,46 @@ To inspect the rules:
 oc get egressfirewall default -n <agent-namespace> -o yaml
 ```
 
+**Adding custom egress rules** (e.g., allow access to `github.com`):
+
+```bash
+# Export the current EgressFirewall
+oc get egressfirewall default -n <agent-namespace> -o yaml > /tmp/egress.yaml
+```
+
+Edit `/tmp/egress.yaml` and add your rule **before** the final `Deny` rule:
+
+```yaml
+  # Example: allow github.com on HTTPS
+  - type: Allow
+    to:
+      dnsName: github.com
+    ports:
+      - protocol: TCP
+        port: 443
+  # Example: allow an internal service by IP
+  - type: Allow
+    to:
+      cidrSelector: 10.1.2.3/32
+    ports:
+      - protocol: TCP
+        port: 8080
+  # This must remain last — deny everything else
+  - type: Deny
+    to:
+      cidrSelector: 0.0.0.0/0
+```
+
+Apply the updated rules:
+
+```bash
+oc replace -f /tmp/egress.yaml
+```
+
+**Removing an egress rule**: Edit the YAML, remove the rule, and `oc replace`.
+
+**Important**: OVN EgressFirewall rules are evaluated **top to bottom**. The first matching rule wins. Always keep the `Deny 0.0.0.0/0` rule last. DNS-based rules (`dnsName`) resolve at the time the connection is made, so they work with CDNs and dynamic IPs.
+
 ## Ongoing Management
 
 ```bash
