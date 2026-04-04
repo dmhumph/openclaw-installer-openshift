@@ -35,6 +35,8 @@ import {
   ingressNetworkPolicyManifest,
   resourceQuotaManifest,
   limitRangeManifest,
+  podMonitorManifest,
+  prometheusRuleManifest,
 } from "./k8s-manifests.js";
 import {
   a2aBridgeConfigMapManifest,
@@ -325,6 +327,56 @@ export class KubernetesDeployer implements Deployer {
         "LimitRange openclaw-limits",
         log,
       );
+    }
+
+    // 1g. PodMonitor + PrometheusRule (observability)
+    {
+      const customApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+      const monitoringParams = {
+        group: "monitoring.coreos.com",
+        version: "v1",
+        namespace: ns,
+      };
+
+      // PodMonitor
+      const pm = podMonitorManifest(ns);
+      try {
+        let pmExists = false;
+        try {
+          await customApi.getNamespacedCustomObject({ ...monitoringParams, plural: "podmonitors", name: "openclaw-agent" });
+          pmExists = true;
+        } catch { /* not found */ }
+        if (pmExists) {
+          log("Updating PodMonitor openclaw-agent...");
+          await customApi.replaceNamespacedCustomObject({ ...monitoringParams, plural: "podmonitors", name: "openclaw-agent", body: pm });
+        } else {
+          log("Creating PodMonitor openclaw-agent...");
+          await customApi.createNamespacedCustomObject({ ...monitoringParams, plural: "podmonitors", body: pm });
+        }
+        log("PodMonitor openclaw-agent applied");
+      } catch (err) {
+        log(`Warning: PodMonitor creation failed (monitoring may not be available): ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      // PrometheusRule
+      const pr = prometheusRuleManifest(ns);
+      try {
+        let prExists = false;
+        try {
+          await customApi.getNamespacedCustomObject({ ...monitoringParams, plural: "prometheusrules", name: "openclaw-agent-alerts" });
+          prExists = true;
+        } catch { /* not found */ }
+        if (prExists) {
+          log("Updating PrometheusRule openclaw-agent-alerts...");
+          await customApi.replaceNamespacedCustomObject({ ...monitoringParams, plural: "prometheusrules", name: "openclaw-agent-alerts", body: pr });
+        } else {
+          log("Creating PrometheusRule openclaw-agent-alerts...");
+          await customApi.createNamespacedCustomObject({ ...monitoringParams, plural: "prometheusrules", body: pr });
+        }
+        log("PrometheusRule openclaw-agent-alerts applied");
+      } catch (err) {
+        log(`Warning: PrometheusRule creation failed (monitoring may not be available): ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     // 2. PVC (immutable — skip if exists)
@@ -839,6 +891,20 @@ echo "Config initialized"
       }},
       { name: "ResourceQuota openclaw-quota", fn: () => core.deleteNamespacedResourceQuota({ name: "openclaw-quota", namespace: ns }) },
       { name: "LimitRange openclaw-limits", fn: () => core.deleteNamespacedLimitRange({ name: "openclaw-limits", namespace: ns }) },
+      { name: "PodMonitor openclaw-agent", fn: async () => {
+        const customApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+        await customApi.deleteNamespacedCustomObject({
+          group: "monitoring.coreos.com", version: "v1", namespace: ns,
+          plural: "podmonitors", name: "openclaw-agent",
+        });
+      }},
+      { name: "PrometheusRule openclaw-agent-alerts", fn: async () => {
+        const customApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+        await customApi.deleteNamespacedCustomObject({
+          group: "monitoring.coreos.com", version: "v1", namespace: ns,
+          plural: "prometheusrules", name: "openclaw-agent-alerts",
+        });
+      }},
       { name: "PVC", fn: () => core.deleteNamespacedPersistentVolumeClaim({ name: "openclaw-home-pvc", namespace: ns }) },
     ];
 

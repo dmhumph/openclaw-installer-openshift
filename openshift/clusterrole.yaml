@@ -42,3 +42,7 @@ rules:
     resources: ["securitycontextconstraints"]
     resourceNames: ["openclaw-agent-scc"]
     verbs: ["use"]
+  # Prometheus monitoring resources in agent namespaces
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["podmonitors", "servicemonitors", "prometheusrules"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]

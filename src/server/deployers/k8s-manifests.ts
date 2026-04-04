@@ -757,6 +757,108 @@ export function limitRangeManifest(ns: string): k8s.V1LimitRange {
 }
 
 // ---------------------------------------------------------------------------
+// PodMonitor — Prometheus scraping for agent pods
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a PodMonitor that tells Prometheus to scrape the OpenClaw gateway
+ * pod's health endpoint for up/down tracking.
+ */
+export function podMonitorManifest(ns: string): Record<string, unknown> {
+  return {
+    apiVersion: "monitoring.coreos.com/v1",
+    kind: "PodMonitor",
+    metadata: {
+      name: "openclaw-agent",
+      namespace: ns,
+      labels: { app: "openclaw", "app.kubernetes.io/managed-by": "openclaw-installer" },
+    },
+    spec: {
+      selector: {
+        matchLabels: { app: "openclaw" },
+      },
+      podMetricsEndpoints: [
+        {
+          port: "gateway",
+          path: "/",
+          interval: "30s",
+          scrapeTimeout: "10s",
+        },
+      ],
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// PrometheusRule — alert rules for agent health
+// ---------------------------------------------------------------------------
+
+/**
+ * Create PrometheusRule with alerts for agent pod health.
+ * Uses kube-state-metrics and cAdvisor metrics already collected by OpenShift.
+ */
+export function prometheusRuleManifest(ns: string): Record<string, unknown> {
+  return {
+    apiVersion: "monitoring.coreos.com/v1",
+    kind: "PrometheusRule",
+    metadata: {
+      name: "openclaw-agent-alerts",
+      namespace: ns,
+      labels: { app: "openclaw", "app.kubernetes.io/managed-by": "openclaw-installer" },
+    },
+    spec: {
+      groups: [
+        {
+          name: "openclaw-agent.rules",
+          rules: [
+            {
+              alert: "OpenClawPodCrashLooping",
+              expr: `rate(kube_pod_container_status_restarts_total{namespace="${ns}", container="gateway"}[15m]) * 60 * 15 > 3`,
+              "for": "5m",
+              labels: { severity: "critical", namespace: ns },
+              annotations: {
+                summary: `OpenClaw agent pod in ${ns} is crash looping`,
+                description: "The gateway container has restarted more than 3 times in the last 15 minutes.",
+              },
+            },
+            {
+              alert: "OpenClawPodNotReady",
+              expr: `kube_pod_status_ready{namespace="${ns}", condition="true"} == 0`,
+              "for": "5m",
+              labels: { severity: "warning", namespace: ns },
+              annotations: {
+                summary: `OpenClaw agent pod in ${ns} is not ready`,
+                description: "The agent pod has been in a non-ready state for more than 5 minutes.",
+              },
+            },
+            {
+              alert: "OpenClawHighMemoryUsage",
+              expr: `sum(container_memory_working_set_bytes{namespace="${ns}", container!=""}) / sum(kube_resourcequota{namespace="${ns}", resource="limits.memory", type="hard"}) > 0.8`,
+              "for": "10m",
+              labels: { severity: "warning", namespace: ns },
+              annotations: {
+                summary: `OpenClaw agent in ${ns} using >80% of memory quota`,
+                description: "The agent namespace is consuming more than 80% of its memory quota.",
+              },
+            },
+            {
+              alert: "OpenClawHighCPUUsage",
+              expr: `sum(rate(container_cpu_usage_seconds_total{namespace="${ns}", container!=""}[5m])) / sum(kube_resourcequota{namespace="${ns}", resource="limits.cpu", type="hard"}) > 0.8`,
+              "for": "10m",
+              labels: { severity: "warning", namespace: ns },
+              annotations: {
+                summary: `OpenClaw agent in ${ns} using >80% of CPU quota`,
+                description: "The agent namespace is consuming more than 80% of its CPU quota.",
+              },
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // SCC RoleBinding — bind agent ServiceAccounts to openclaw-agent-scc
 // ---------------------------------------------------------------------------
 

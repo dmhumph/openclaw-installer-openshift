@@ -15,3 +15,9 @@ resources:
   - deployment.yaml
   - service.yaml
   - route.yaml
+  # Observability (Phase 3)
+  # Note: user-workload-monitoring.yaml targets openshift-monitoring namespace
+  # and must be applied separately or with cluster-admin: oc apply -f openshift/user-workload-monitoring.yaml
+  # observability-operator-subscription.yaml installs the operator (apply once)
+  - uiplugin.yaml
+  - openclaw-dashboard.yaml

@@ -1,0 +1,213 @@
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: openclaw-agents
+  namespace: openclaw-installer
+  labels:
+    app.kubernetes.io/name: openclaw-installer
+spec:
+  config:
+    display:
+      name: OpenClaw Agent Health
+      description: Overview of OpenClaw agent pods across all namespaces
+    duration: 1h
+    variables:
+      - kind: ListVariable
+        spec:
+          display:
+            name: Namespace
+            hidden: false
+          allowMultiple: true
+          allowAllValue: true
+          plugin:
+            kind: PrometheusLabelValuesVariable
+            spec:
+              datasource:
+                kind: PrometheusDatasource
+                name: thanos-querier
+              labelName: namespace
+              matchers:
+                - kube_pod_labels{label_app="openclaw"}
+    panels:
+      agent-pods:
+        kind: Panel
+        spec:
+          display:
+            name: Agent Pod Status
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: sum by (namespace) (kube_pod_status_ready{namespace=~"$Namespace", condition="true"} * on(namespace, pod) group_left kube_pod_labels{label_app="openclaw"})
+                    seriesNameFormat: "{{namespace}} - ready"
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: sum by (namespace) (kube_pod_status_ready{namespace=~"$Namespace", condition="false"} * on(namespace, pod) group_left kube_pod_labels{label_app="openclaw"})
+                    seriesNameFormat: "{{namespace}} - not ready"
+      container-restarts:
+        kind: Panel
+        spec:
+          display:
+            name: Container Restarts (15m rate)
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: sum by (namespace, container) (rate(kube_pod_container_status_restarts_total{namespace=~"$Namespace", container=~"gateway|oauth-proxy"}[15m]) * 60 * 15)
+                    seriesNameFormat: "{{namespace}}/{{container}}"
+      memory-usage:
+        kind: Panel
+        spec:
+          display:
+            name: Memory Usage by Namespace
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: sum by (namespace) (container_memory_working_set_bytes{namespace=~"$Namespace", container!=""} * on(namespace, pod) group_left kube_pod_labels{label_app="openclaw"})
+                    seriesNameFormat: "{{namespace}}"
+      cpu-usage:
+        kind: Panel
+        spec:
+          display:
+            name: CPU Usage by Namespace
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace=~"$Namespace", container!=""}[5m]) * on(namespace, pod) group_left kube_pod_labels{label_app="openclaw"})
+                    seriesNameFormat: "{{namespace}}"
+      quota-memory:
+        kind: Panel
+        spec:
+          display:
+            name: Memory Quota Usage (%)
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: 100 * sum by (namespace) (container_memory_working_set_bytes{namespace=~"$Namespace", container!=""}) / on(namespace) group_left sum by (namespace) (kube_resourcequota{namespace=~"$Namespace", resource="limits.memory", type="hard"})
+                    seriesNameFormat: "{{namespace}}"
+      quota-cpu:
+        kind: Panel
+        spec:
+          display:
+            name: CPU Quota Usage (%)
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: 100 * sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace=~"$Namespace", container!=""}[5m])) / on(namespace) group_left sum by (namespace) (kube_resourcequota{namespace=~"$Namespace", resource="limits.cpu", type="hard"})
+                    seriesNameFormat: "{{namespace}}"
+    layouts:
+      - kind: Grid
+        spec:
+          display:
+            title: Pod Health
+            collapse:
+              open: true
+          items:
+            - x: 0
+              y: 0
+              width: 12
+              height: 8
+              content:
+                "$ref": "#/spec/config/panels/agent-pods"
+            - x: 12
+              y: 0
+              width: 12
+              height: 8
+              content:
+                "$ref": "#/spec/config/panels/container-restarts"
+      - kind: Grid
+        spec:
+          display:
+            title: Resource Usage
+            collapse:
+              open: true
+          items:
+            - x: 0
+              y: 0
+              width: 12
+              height: 8
+              content:
+                "$ref": "#/spec/config/panels/memory-usage"
+            - x: 12
+              y: 0
+              width: 12
+              height: 8
+              content:
+                "$ref": "#/spec/config/panels/cpu-usage"
+      - kind: Grid
+        spec:
+          display:
+            title: Quota Utilization
+            collapse:
+              open: true
+          items:
+            - x: 0
+              y: 0
+              width: 12
+              height: 8
+              content:
+                "$ref": "#/spec/config/panels/quota-memory"
+            - x: 12
+              y: 0
+              width: 12
+              height: 8
+              content:
+                "$ref": "#/spec/config/panels/quota-cpu"
