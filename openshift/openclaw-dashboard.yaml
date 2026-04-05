@@ -162,13 +162,13 @@ spec:
               open: true
           items:
             - x: 0
-              y: 0
+              "y": 0
               width: 12
               height: 8
               content:
                 "$ref": "#/spec/config/panels/agent-pods"
             - x: 12
-              y: 0
+              "y": 0
               width: 12
               height: 8
               content:
@@ -181,13 +181,13 @@ spec:
               open: true
           items:
             - x: 0
-              y: 0
+              "y": 0
               width: 12
               height: 8
               content:
                 "$ref": "#/spec/config/panels/memory-usage"
             - x: 12
-              y: 0
+              "y": 0
               width: 12
               height: 8
               content:
@@ -200,13 +200,13 @@ spec:
               open: true
           items:
             - x: 0
-              y: 0
+              "y": 0
               width: 12
               height: 8
               content:
                 "$ref": "#/spec/config/panels/quota-memory"
             - x: 12
-              y: 0
+              "y": 0
               width: 12
               height: 8
               content:
