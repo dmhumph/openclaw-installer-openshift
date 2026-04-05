@@ -18,112 +18,111 @@ data:
         "list": [
           {
             "current": { "text": "Prometheus", "value": "prometheus" },
-            "hide": 0,
-            "label": "Data source",
+            "hide": 2,
             "name": "datasource",
             "options": [],
             "query": "prometheus",
-            "refresh": 1,
             "type": "datasource"
-          },
-          {
-            "allValue": ".*",
-            "current": { "text": "All", "value": "$__all" },
-            "datasource": "$datasource",
-            "hide": 0,
-            "includeAll": true,
-            "label": "Namespace",
-            "multi": true,
-            "name": "namespace",
-            "query": "label_values(kube_pod_labels{label_app=\"openclaw\"}, namespace)",
-            "refresh": 2,
-            "type": "query"
           }
         ]
       },
-      "panels": [
+      "rows": [
         {
-          "title": "Agent Pod Status",
-          "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-          "datasource": "$datasource",
-          "targets": [
+          "title": "Pod Health",
+          "collapse": false,
+          "panels": [
             {
-              "expr": "sum by (namespace) (kube_pod_status_ready{namespace=~\"$namespace\", condition=\"true\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
-              "legendFormat": "{{namespace}} - ready"
+              "title": "Agent Pods Ready",
+              "type": "timeseries",
+              "span": 6,
+              "datasource": "$datasource",
+              "targets": [
+                {
+                  "expr": "sum by (namespace) (kube_pod_status_ready{condition=\"true\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
+                  "legendFormat": "{{namespace}}"
+                }
+              ]
             },
             {
-              "expr": "sum by (namespace) (kube_pod_status_ready{namespace=~\"$namespace\", condition=\"false\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
-              "legendFormat": "{{namespace}} - not ready"
+              "title": "Container Restarts (15m)",
+              "type": "timeseries",
+              "span": 6,
+              "datasource": "$datasource",
+              "targets": [
+                {
+                  "expr": "sum by (namespace, container) (increase(kube_pod_container_status_restarts_total{container=~\"gateway|oauth-proxy\"}[15m]) * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
+                  "legendFormat": "{{namespace}}/{{container}}"
+                }
+              ]
             }
           ]
         },
         {
-          "title": "Container Restarts (15m rate)",
-          "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-          "datasource": "$datasource",
-          "targets": [
+          "title": "Resource Usage",
+          "collapse": false,
+          "panels": [
             {
-              "expr": "sum by (namespace, container) (rate(kube_pod_container_status_restarts_total{namespace=~\"$namespace\", container=~\"gateway|oauth-proxy\"}[15m]) * 60 * 15)",
-              "legendFormat": "{{namespace}}/{{container}}"
+              "title": "Memory Usage",
+              "type": "timeseries",
+              "span": 6,
+              "datasource": "$datasource",
+              "fieldConfig": {
+                "defaults": { "unit": "bytes" }
+              },
+              "targets": [
+                {
+                  "expr": "sum by (namespace) (container_memory_working_set_bytes{container!=\"\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
+                  "legendFormat": "{{namespace}}"
+                }
+              ]
+            },
+            {
+              "title": "CPU Usage",
+              "type": "timeseries",
+              "span": 6,
+              "datasource": "$datasource",
+              "targets": [
+                {
+                  "expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]) * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
+                  "legendFormat": "{{namespace}}"
+                }
+              ]
             }
           ]
         },
         {
-          "title": "Memory Usage by Namespace",
-          "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-          "datasource": "$datasource",
-          "fieldConfig": {
-            "defaults": { "unit": "bytes" }
-          },
-          "targets": [
+          "title": "Quota Utilization",
+          "collapse": false,
+          "panels": [
             {
-              "expr": "sum by (namespace) (container_memory_working_set_bytes{namespace=~\"$namespace\", container!=\"\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
-              "legendFormat": "{{namespace}}"
-            }
-          ]
-        },
-        {
-          "title": "CPU Usage by Namespace",
-          "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-          "datasource": "$datasource",
-          "targets": [
+              "title": "Memory Quota Usage (%)",
+              "type": "timeseries",
+              "span": 6,
+              "datasource": "$datasource",
+              "fieldConfig": {
+                "defaults": { "unit": "percent", "max": 100 }
+              },
+              "targets": [
+                {
+                  "expr": "100 * sum by (namespace) (container_memory_working_set_bytes{container!=\"\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"}) / on(namespace) group_left() sum by (namespace) (kube_resourcequota{resource=\"limits.memory\", type=\"hard\"})",
+                  "legendFormat": "{{namespace}}"
+                }
+              ]
+            },
             {
-              "expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container!=\"\"}[5m]) * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
-              "legendFormat": "{{namespace}}"
-            }
-          ]
-        },
-        {
-          "title": "Memory Quota Usage (%)",
-          "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
-          "datasource": "$datasource",
-          "fieldConfig": {
-            "defaults": { "unit": "percent", "max": 100 }
-          },
-          "targets": [
-            {
-              "expr": "100 * sum by (namespace) (container_memory_working_set_bytes{namespace=~\"$namespace\", container!=\"\"}) / on(namespace) group_left() sum by (namespace) (kube_resourcequota{namespace=~\"$namespace\", resource=\"limits.memory\", type=\"hard\"})",
-              "legendFormat": "{{namespace}}"
-            }
-          ]
-        },
-        {
-          "title": "CPU Quota Usage (%)",
-          "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-          "datasource": "$datasource",
-          "fieldConfig": {
-            "defaults": { "unit": "percent", "max": 100 }
-          },
-          "targets": [
-            {
-              "expr": "100 * sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container!=\"\"}[5m])) / on(namespace) group_left() sum by (namespace) (kube_resourcequota{namespace=~\"$namespace\", resource=\"limits.cpu\", type=\"hard\"})",
-              "legendFormat": "{{namespace}}"
+              "title": "CPU Quota Usage (%)",
+              "type": "timeseries",
+              "span": 6,
+              "datasource": "$datasource",
+              "fieldConfig": {
+                "defaults": { "unit": "percent", "max": 100 }
+              },
+              "targets": [
+                {
+                  "expr": "100 * sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]) * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"}) / on(namespace) group_left() sum by (namespace) (kube_resourcequota{resource=\"limits.cpu\", type=\"hard\"})",
+                  "legendFormat": "{{namespace}}"
+                }
+              ]
             }
           ]
         }
