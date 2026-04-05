@@ -84,6 +84,7 @@ export function createInitialDeployFormConfig(): DeployFormConfig {
     quotaCpu: "4",
     quotaMemory: "6Gi",
     customEgressRules: [],
+    rateLimitRpm: "60",
     withA2a: false,
     a2aRealm: "",
     a2aKeycloakNamespace: "keycloak",
@@ -307,6 +308,7 @@ export function applySavedVarsToConfig(
       quotaEnabled: vars.QUOTA_ENABLED === "false" || vars.quotaEnabled === false ? false : prev.quotaEnabled,
       quotaCpu: getStringVar(vars, "QUOTA_CPU", "quotaCpu") || prev.quotaCpu,
       quotaMemory: getStringVar(vars, "QUOTA_MEMORY", "quotaMemory") || prev.quotaMemory,
+      rateLimitRpm: getStringVar(vars, "RATE_LIMIT_RPM", "rateLimitRpm") || prev.rateLimitRpm,
       customEgressRules: Array.isArray(vars.customEgressRules)
         ? (vars.customEgressRules as Array<{ destination: string; port: string; protocol: string }>)
         : prev.customEgressRules,
@@ -422,6 +424,7 @@ export function buildDeployRequestBody(params: {
     quotaEnabled: config.quotaEnabled,
     quotaCpu: config.quotaCpu || undefined,
     quotaMemory: config.quotaMemory || undefined,
+    rateLimitRpm: parseInt(config.rateLimitRpm, 10) || 60,
     customEgressRules: config.customEgressRules.length > 0
       ? config.customEgressRules
           .filter((r) => r.destination.trim() && r.port.trim())

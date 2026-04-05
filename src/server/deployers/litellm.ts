@@ -10,12 +10,16 @@ export function generateLitellmMasterKey(): string {
 
 /**
  * Returns true when the LiteLLM proxy should be used for this config.
- * On by default when Vertex is enabled with SA JSON credentials.
+ * On by default for Kubernetes/OpenShift deployments (routes all providers
+ * through the proxy for token tracking, rate limiting, and content filtering).
+ * For local deployments, only enabled when Vertex + SA JSON credentials present.
  */
 export function shouldUseLitellmProxy(config: DeployConfig): boolean {
   if (config.litellmProxy === false) return false;
   if (config.litellmProxy === true) return true;
-  // Default: on when Vertex + SA JSON credentials are present
+  // Default: on for cluster deployments (openshift/kubernetes mode)
+  if (config.mode === "openshift" || config.mode === "kubernetes") return true;
+  // Legacy: on when Vertex + SA JSON credentials are present
   return !!(config.vertexEnabled && config.gcpServiceAccountJson);
 }
 
@@ -39,46 +43,76 @@ export function litellmModelString(config: DeployConfig): string {
 }
 
 /**
- * Build model entries for the LiteLLM config based on the Vertex provider.
- * LiteLLM only handles Vertex models — secondary providers (OpenAI, Anthropic)
- * are routed directly by the gateway using their native API keys.
+ * Build model entries for the LiteLLM config based on ALL configured providers.
+ * Routes Anthropic, OpenAI, Vertex, and custom endpoint models through the proxy
+ * for centralized token tracking, rate limiting, and content filtering.
  */
 function buildModelList(config: DeployConfig): Array<Record<string, unknown>> {
-  const project = config.googleCloudProject || "";
-  const location = config.googleCloudLocation || "";
   const seen = new Set<string>();
-
   const models: Array<Record<string, unknown>> = [];
 
-  function addModel(name: string) {
+  function addModel(name: string, params: Record<string, unknown>) {
     if (seen.has(name)) return;
     seen.add(name);
-    models.push({
-      model_name: name,
-      litellm_params: {
-        model: `vertex_ai/${name}`,
-        vertex_project: project,
-        vertex_location: location,
-      },
-    });
+    models.push({ model_name: name, litellm_params: params });
   }
 
-  // Add the primary model (from provider-specific field, agentModel, or default)
-  if (config.vertexProvider === "google") {
-    addModel(config.vertexGoogleModel?.trim() || config.agentModel?.trim() || "gemini-2.5-pro");
-    addModel("gemini-2.5-pro");
-    addModel("gemini-2.5-flash");
-    for (const modelId of config.vertexGoogleModels || []) {
-      const trimmed = modelId.trim();
-      if (trimmed) addModel(trimmed);
+  // ── Vertex AI models ──
+  if (config.vertexEnabled) {
+    const project = config.googleCloudProject || "";
+    const location = config.googleCloudLocation || "";
+    if (config.vertexProvider === "google") {
+      const primary = config.vertexGoogleModel?.trim() || config.agentModel?.trim() || "gemini-2.5-pro";
+      addModel(primary, { model: `vertex_ai/${primary}`, vertex_project: project, vertex_location: location });
+      addModel("gemini-2.5-pro", { model: "vertex_ai/gemini-2.5-pro", vertex_project: project, vertex_location: location });
+      addModel("gemini-2.5-flash", { model: "vertex_ai/gemini-2.5-flash", vertex_project: project, vertex_location: location });
+      for (const m of config.vertexGoogleModels || []) {
+        const t = m.trim();
+        if (t) addModel(t, { model: `vertex_ai/${t}`, vertex_project: project, vertex_location: location });
+      }
+    } else {
+      const primary = config.vertexAnthropicModel?.trim() || config.agentModel?.trim() || "claude-sonnet-4-6";
+      addModel(primary, { model: `vertex_ai/${primary}`, vertex_project: project, vertex_location: location });
+      addModel("claude-sonnet-4-6", { model: "vertex_ai/claude-sonnet-4-6", vertex_project: project, vertex_location: location });
+      addModel("claude-haiku-4-5", { model: "vertex_ai/claude-haiku-4-5", vertex_project: project, vertex_location: location });
+      for (const m of config.vertexAnthropicModels || []) {
+        const t = m.trim();
+        if (t) addModel(t, { model: `vertex_ai/${t}`, vertex_project: project, vertex_location: location });
+      }
     }
-  } else {
-    addModel(config.vertexAnthropicModel?.trim() || config.agentModel?.trim() || "claude-sonnet-4-6");
-    addModel("claude-sonnet-4-6");
-    addModel("claude-haiku-4-5");
-    for (const modelId of config.vertexAnthropicModels || []) {
-      const trimmed = modelId.trim();
-      if (trimmed) addModel(trimmed);
+  }
+
+  // ── Anthropic models (direct API) ──
+  if (config.anthropicApiKey || config.anthropicApiKeyRef) {
+    const primary = config.anthropicModel?.trim() || "claude-sonnet-4-6";
+    addModel(primary, { model: `anthropic/${primary}`, api_key: "os.environ/ANTHROPIC_API_KEY" });
+    for (const m of config.anthropicModels || []) {
+      const t = m.trim();
+      if (t) addModel(t, { model: `anthropic/${t}`, api_key: "os.environ/ANTHROPIC_API_KEY" });
+    }
+  }
+
+  // ── OpenAI models ──
+  if (config.openaiApiKey || config.openaiApiKeyRef) {
+    const primary = config.openaiModel?.trim() || "gpt-4o";
+    addModel(primary, { model: `openai/${primary}`, api_key: "os.environ/OPENAI_API_KEY" });
+    for (const m of config.openaiModels || []) {
+      const t = m.trim();
+      if (t) addModel(t, { model: `openai/${t}`, api_key: "os.environ/OPENAI_API_KEY" });
+    }
+  }
+
+  // ── Custom endpoint models (Ollama, vLLM, etc.) ──
+  if (config.modelEndpoint?.trim()) {
+    const endpoint = config.modelEndpoint.trim();
+    const apiKey = config.modelEndpointApiKey?.trim() || "not-required";
+    if (config.modelEndpointModel?.trim()) {
+      const name = config.modelEndpointModel.trim();
+      addModel(name, { model: `openai/${name}`, api_base: endpoint, api_key: apiKey });
+    }
+    for (const m of config.modelEndpointModels || []) {
+      const id = String(m.id || "").trim();
+      if (id) addModel(id, { model: `openai/${id}`, api_base: endpoint, api_key: apiKey });
     }
   }
 
@@ -88,23 +122,10 @@ function buildModelList(config: DeployConfig): Array<Record<string, unknown>> {
 /**
  * Generate litellm_config.yaml content as a YAML string.
  * We build it manually to avoid a js-yaml dependency.
+ * Includes Prometheus metrics, rate limiting, and content filtering.
  */
 export function generateLitellmConfig(config: DeployConfig, masterKey: string): string {
   const models = buildModelList(config);
-
-  // If the user specified a custom model, add it as an entry
-  if (config.agentModel && !models.some((m) => m.model_name === config.agentModel)) {
-    const project = config.googleCloudProject || "";
-    const location = config.googleCloudLocation || "";
-    models.unshift({
-      model_name: config.agentModel,
-      litellm_params: {
-        model: `vertex_ai/${config.agentModel}`,
-        vertex_project: project,
-        vertex_location: location,
-      },
-    });
-  }
 
   const lines: string[] = [
     "model_list:",
@@ -112,14 +133,31 @@ export function generateLitellmConfig(config: DeployConfig, masterKey: string): 
 
   for (const m of models) {
     const params = m.litellm_params as Record<string, string>;
-    lines.push(`  - model_name: ${m.model_name}`);
+    lines.push(`  - model_name: ${String(m.model_name)}`);
     lines.push("    litellm_params:");
     lines.push(`      model: ${params.model}`);
     if (params.vertex_project !== undefined) {
       lines.push(`      vertex_project: "${params.vertex_project}"`);
       lines.push(`      vertex_location: "${params.vertex_location}"`);
     }
+    if (params.api_base !== undefined) {
+      lines.push(`      api_base: "${params.api_base}"`);
+    }
+    if (params.api_key !== undefined) {
+      lines.push(`      api_key: ${params.api_key}`);
+    }
   }
+
+  // Rate limit (RPM) — configurable per agent, default 60
+  const rpm = config.rateLimitRpm ? parseInt(String(config.rateLimitRpm), 10) : 60;
+
+  lines.push("");
+  lines.push("litellm_settings:");
+  lines.push("  callbacks:");
+  lines.push("    - prometheus");
+  lines.push(`  max_parallel_requests: ${Math.max(Math.floor(rpm / 6), 5)}`);
+  lines.push("  drop_params: true");
+  lines.push("  num_retries: 2");
 
   lines.push("");
   lines.push("general_settings:");

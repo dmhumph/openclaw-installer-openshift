@@ -110,6 +110,8 @@ export interface DeployConfig {
   quotaCpu?: string;     // e.g. "2", "4"
   quotaMemory?: string;  // e.g. "4Gi", "8Gi"
   quotaEnabled?: boolean; // default: true
+  // LLM proxy rate limiting (requests per minute, default 60)
+  rateLimitRpm?: number;
   // Custom egress rules (additional endpoints beyond auto-generated ones)
   customEgressRules?: Array<{
     destination: string;  // DNS name (e.g. "github.com") or CIDR (e.g. "10.1.2.3/32")

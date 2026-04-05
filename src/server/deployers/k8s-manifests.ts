@@ -452,15 +452,17 @@ echo "Config initialized"
                 capabilities: { drop: ["ALL"] },
               },
             },
-            // LiteLLM proxy sidecar: holds GCP creds, exposes OpenAI-compatible API.
-            // Only handles Vertex models — secondary providers (OpenAI, Anthropic)
-            // are routed directly by the gateway using their native API keys.
+            // LiteLLM proxy sidecar: routes all LLM requests for token tracking,
+            // rate limiting, and content filtering. Exposes /metrics for Prometheus.
             ...(useProxy ? [{
               name: "litellm",
               image: config.litellmImage || LITELLM_IMAGE,
               args: ["--config", "/etc/litellm/config.yaml", "--port", String(LITELLM_PORT)],
               ports: [{ name: "litellm", containerPort: LITELLM_PORT, protocol: "TCP" as const }],
               env: [
+                // Pass provider API keys so LiteLLM can authenticate with upstream APIs
+                { name: "ANTHROPIC_API_KEY", valueFrom: { secretKeyRef: { name: "openclaw-secrets", key: "ANTHROPIC_API_KEY", optional: true } } },
+                { name: "OPENAI_API_KEY", valueFrom: { secretKeyRef: { name: "openclaw-secrets", key: "OPENAI_API_KEY", optional: true } } },
                 ...(config.gcpServiceAccountJson
                   ? [{ name: "GOOGLE_APPLICATION_CREDENTIALS", value: "/home/node/gcp/sa.json" }]
                   : []),
@@ -781,6 +783,12 @@ export function podMonitorManifest(ns: string): Record<string, unknown> {
         {
           port: "gateway",
           path: "/",
+          interval: "30s",
+          scrapeTimeout: "10s",
+        },
+        {
+          port: "litellm",
+          path: "/metrics",
           interval: "30s",
           scrapeTimeout: "10s",
         },

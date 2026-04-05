@@ -995,6 +995,20 @@ export default function DeployForm({ onDeployStarted }: DeployFormProps) {
                       Maximum memory for the namespace (e.g., &quot;4Gi&quot;, &quot;8Gi&quot;). Must be enough for all containers (gateway ~4Gi + sidecars).
                     </div>
                   </div>
+
+                  <div className="form-group">
+                    <label>LLM Rate Limit (requests/min)</label>
+                    <input
+                      type="text"
+                      aria-label="Rate Limit RPM"
+                      placeholder="60"
+                      value={config.rateLimitRpm}
+                      onChange={(e) => update("rateLimitRpm", e.target.value)}
+                    />
+                    <div className="hint">
+                      Maximum LLM API requests per minute through the LiteLLM proxy. Applies to all model providers.
+                    </div>
+                  </div>
                 </>
               )}
             </div>

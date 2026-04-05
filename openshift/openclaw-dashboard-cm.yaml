@@ -297,6 +297,201 @@ data:
           ],
           "showTitle": true,
           "title": "Quota Utilization"
+        },
+        {
+          "collapse": false,
+          "height": "250px",
+          "panels": [
+            {
+              "aliasColors": {},
+              "bars": false,
+              "dashLength": 10,
+              "dashes": false,
+              "datasource": "$datasource",
+              "fill": 1,
+              "id": 7,
+              "legend": { "alignAsTable": false, "avg": false, "current": false, "max": false, "min": false, "rightSide": false, "show": true, "total": false, "values": false },
+              "lines": true,
+              "linewidth": 1,
+              "links": [],
+              "nullPointMode": "null as zero",
+              "percentage": false,
+              "pointradius": 5,
+              "points": false,
+              "renderer": "flot",
+              "seriesOverrides": [],
+              "spaceLength": 10,
+              "span": 6,
+              "stack": false,
+              "steppedLine": false,
+              "targets": [
+                {
+                  "expr": "sum by (requested_model) (increase(litellm_total_tokens_metric[5m]))",
+                  "format": "time_series",
+                  "legendFormat": "{{requested_model}}",
+                  "intervalFactor": 2,
+                  "refId": "A"
+                }
+              ],
+              "thresholds": [],
+              "timeFrom": null,
+              "timeShift": null,
+              "title": "LLM Token Usage (5m rate)",
+              "tooltip": { "shared": true, "sort": 0, "value_type": "individual" },
+              "type": "graph",
+              "xaxis": { "buckets": null, "mode": "time", "name": null, "show": true, "values": [] },
+              "yaxes": [
+                { "format": "short", "label": "tokens", "logBase": 1, "max": null, "min": 0, "show": true },
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": null, "show": false }
+              ]
+            },
+            {
+              "aliasColors": {},
+              "bars": false,
+              "dashLength": 10,
+              "dashes": false,
+              "datasource": "$datasource",
+              "fill": 1,
+              "id": 8,
+              "legend": { "alignAsTable": false, "avg": false, "current": false, "max": false, "min": false, "rightSide": false, "show": true, "total": false, "values": false },
+              "lines": true,
+              "linewidth": 1,
+              "links": [],
+              "nullPointMode": "null as zero",
+              "percentage": false,
+              "pointradius": 5,
+              "points": false,
+              "renderer": "flot",
+              "seriesOverrides": [],
+              "spaceLength": 10,
+              "span": 6,
+              "stack": false,
+              "steppedLine": false,
+              "targets": [
+                {
+                  "expr": "sum by (requested_model) (rate(litellm_proxy_total_requests_metric[5m]) * 60)",
+                  "format": "time_series",
+                  "legendFormat": "{{requested_model}}",
+                  "intervalFactor": 2,
+                  "refId": "A"
+                }
+              ],
+              "thresholds": [],
+              "timeFrom": null,
+              "timeShift": null,
+              "title": "LLM Request Rate (req/min)",
+              "tooltip": { "shared": true, "sort": 0, "value_type": "individual" },
+              "type": "graph",
+              "xaxis": { "buckets": null, "mode": "time", "name": null, "show": true, "values": [] },
+              "yaxes": [
+                { "format": "short", "label": "req/min", "logBase": 1, "max": null, "min": 0, "show": true },
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": null, "show": false }
+              ]
+            }
+          ],
+          "showTitle": true,
+          "title": "LLM Proxy"
+        },
+        {
+          "collapse": false,
+          "height": "250px",
+          "panels": [
+            {
+              "aliasColors": {},
+              "bars": false,
+              "dashLength": 10,
+              "dashes": false,
+              "datasource": "$datasource",
+              "fill": 1,
+              "id": 9,
+              "legend": { "alignAsTable": false, "avg": false, "current": false, "max": false, "min": false, "rightSide": false, "show": true, "total": false, "values": false },
+              "lines": true,
+              "linewidth": 1,
+              "links": [],
+              "nullPointMode": "null as zero",
+              "percentage": false,
+              "pointradius": 5,
+              "points": false,
+              "renderer": "flot",
+              "seriesOverrides": [],
+              "spaceLength": 10,
+              "span": 6,
+              "stack": false,
+              "steppedLine": false,
+              "targets": [
+                {
+                  "expr": "histogram_quantile(0.95, sum by (le, requested_model) (rate(litellm_request_total_latency_metric_bucket[5m])))",
+                  "format": "time_series",
+                  "legendFormat": "p95 {{requested_model}}",
+                  "intervalFactor": 2,
+                  "refId": "A"
+                },
+                {
+                  "expr": "histogram_quantile(0.50, sum by (le, requested_model) (rate(litellm_request_total_latency_metric_bucket[5m])))",
+                  "format": "time_series",
+                  "legendFormat": "p50 {{requested_model}}",
+                  "intervalFactor": 2,
+                  "refId": "B"
+                }
+              ],
+              "thresholds": [],
+              "timeFrom": null,
+              "timeShift": null,
+              "title": "LLM Request Latency (p50/p95)",
+              "tooltip": { "shared": true, "sort": 0, "value_type": "individual" },
+              "type": "graph",
+              "xaxis": { "buckets": null, "mode": "time", "name": null, "show": true, "values": [] },
+              "yaxes": [
+                { "format": "s", "label": null, "logBase": 1, "max": null, "min": 0, "show": true },
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": null, "show": false }
+              ]
+            },
+            {
+              "aliasColors": {},
+              "bars": false,
+              "dashLength": 10,
+              "dashes": false,
+              "datasource": "$datasource",
+              "fill": 1,
+              "id": 10,
+              "legend": { "alignAsTable": false, "avg": false, "current": false, "max": false, "min": false, "rightSide": false, "show": true, "total": false, "values": false },
+              "lines": true,
+              "linewidth": 1,
+              "links": [],
+              "nullPointMode": "null as zero",
+              "percentage": false,
+              "pointradius": 5,
+              "points": false,
+              "renderer": "flot",
+              "seriesOverrides": [],
+              "spaceLength": 10,
+              "span": 6,
+              "stack": false,
+              "steppedLine": false,
+              "targets": [
+                {
+                  "expr": "sum by (requested_model) (increase(litellm_proxy_failed_requests_metric[5m]))",
+                  "format": "time_series",
+                  "legendFormat": "{{requested_model}}",
+                  "intervalFactor": 2,
+                  "refId": "A"
+                }
+              ],
+              "thresholds": [],
+              "timeFrom": null,
+              "timeShift": null,
+              "title": "LLM Failed Requests (5m)",
+              "tooltip": { "shared": true, "sort": 0, "value_type": "individual" },
+              "type": "graph",
+              "xaxis": { "buckets": null, "mode": "time", "name": null, "show": true, "values": [] },
+              "yaxes": [
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": 0, "show": true },
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": null, "show": false }
+              ]
+            }
+          ],
+          "showTitle": true,
+          "title": "LLM Proxy - Latency & Errors"
         }
       ],
       "schemaVersion": 14,
