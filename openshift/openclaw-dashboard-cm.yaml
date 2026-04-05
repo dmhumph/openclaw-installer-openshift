@@ -9,122 +9,317 @@ metadata:
 data:
   openclaw-agents.json: |
     {
-      "title": "OpenClaw / Agent Health",
-      "tags": ["openclaw"],
+      "annotations": { "list": [] },
       "editable": false,
-      "time": { "from": "now-1h", "to": "now" },
+      "graphTooltip": 0,
+      "hideControls": false,
+      "links": [],
       "refresh": "30s",
+      "rows": [
+        {
+          "collapse": false,
+          "height": "250px",
+          "panels": [
+            {
+              "aliasColors": {},
+              "bars": false,
+              "dashLength": 10,
+              "dashes": false,
+              "datasource": "$datasource",
+              "fill": 1,
+              "id": 1,
+              "legend": { "alignAsTable": false, "avg": false, "current": false, "max": false, "min": false, "rightSide": false, "show": true, "total": false, "values": false },
+              "lines": true,
+              "linewidth": 1,
+              "links": [],
+              "nullPointMode": "null as zero",
+              "percentage": false,
+              "pointradius": 5,
+              "points": false,
+              "renderer": "flot",
+              "seriesOverrides": [],
+              "spaceLength": 10,
+              "span": 6,
+              "stack": false,
+              "steppedLine": false,
+              "targets": [
+                {
+                  "expr": "sum by (namespace) (kube_pod_status_ready{condition=\"true\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
+                  "format": "time_series",
+                  "legendFormat": "{{namespace}}",
+                  "intervalFactor": 2,
+                  "refId": "A"
+                }
+              ],
+              "thresholds": [],
+              "timeFrom": null,
+              "timeShift": null,
+              "title": "Agent Pods Ready",
+              "tooltip": { "shared": true, "sort": 0, "value_type": "individual" },
+              "type": "graph",
+              "xaxis": { "buckets": null, "mode": "time", "name": null, "show": true, "values": [] },
+              "yaxes": [
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": 0, "show": true },
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": null, "show": false }
+              ]
+            },
+            {
+              "aliasColors": {},
+              "bars": false,
+              "dashLength": 10,
+              "dashes": false,
+              "datasource": "$datasource",
+              "fill": 1,
+              "id": 2,
+              "legend": { "alignAsTable": false, "avg": false, "current": false, "max": false, "min": false, "rightSide": false, "show": true, "total": false, "values": false },
+              "lines": true,
+              "linewidth": 1,
+              "links": [],
+              "nullPointMode": "null as zero",
+              "percentage": false,
+              "pointradius": 5,
+              "points": false,
+              "renderer": "flot",
+              "seriesOverrides": [],
+              "spaceLength": 10,
+              "span": 6,
+              "stack": false,
+              "steppedLine": false,
+              "targets": [
+                {
+                  "expr": "sum by (namespace, container) (increase(kube_pod_container_status_restarts_total{container=~\"gateway|oauth-proxy\"}[15m]) * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
+                  "format": "time_series",
+                  "legendFormat": "{{namespace}}/{{container}}",
+                  "intervalFactor": 2,
+                  "refId": "A"
+                }
+              ],
+              "thresholds": [],
+              "timeFrom": null,
+              "timeShift": null,
+              "title": "Container Restarts (15m)",
+              "tooltip": { "shared": true, "sort": 0, "value_type": "individual" },
+              "type": "graph",
+              "xaxis": { "buckets": null, "mode": "time", "name": null, "show": true, "values": [] },
+              "yaxes": [
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": 0, "show": true },
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": null, "show": false }
+              ]
+            }
+          ],
+          "showTitle": true,
+          "title": "Pod Health"
+        },
+        {
+          "collapse": false,
+          "height": "250px",
+          "panels": [
+            {
+              "aliasColors": {},
+              "bars": false,
+              "dashLength": 10,
+              "dashes": false,
+              "datasource": "$datasource",
+              "fill": 1,
+              "id": 3,
+              "legend": { "alignAsTable": false, "avg": false, "current": false, "max": false, "min": false, "rightSide": false, "show": true, "total": false, "values": false },
+              "lines": true,
+              "linewidth": 1,
+              "links": [],
+              "nullPointMode": "null as zero",
+              "percentage": false,
+              "pointradius": 5,
+              "points": false,
+              "renderer": "flot",
+              "seriesOverrides": [],
+              "spaceLength": 10,
+              "span": 6,
+              "stack": false,
+              "steppedLine": false,
+              "targets": [
+                {
+                  "expr": "sum by (namespace) (container_memory_working_set_bytes{container!=\"\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
+                  "format": "time_series",
+                  "legendFormat": "{{namespace}}",
+                  "intervalFactor": 2,
+                  "refId": "A"
+                }
+              ],
+              "thresholds": [],
+              "timeFrom": null,
+              "timeShift": null,
+              "title": "Memory Usage",
+              "tooltip": { "shared": true, "sort": 0, "value_type": "individual" },
+              "type": "graph",
+              "xaxis": { "buckets": null, "mode": "time", "name": null, "show": true, "values": [] },
+              "yaxes": [
+                { "format": "bytes", "label": null, "logBase": 1, "max": null, "min": 0, "show": true },
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": null, "show": false }
+              ]
+            },
+            {
+              "aliasColors": {},
+              "bars": false,
+              "dashLength": 10,
+              "dashes": false,
+              "datasource": "$datasource",
+              "fill": 1,
+              "id": 4,
+              "legend": { "alignAsTable": false, "avg": false, "current": false, "max": false, "min": false, "rightSide": false, "show": true, "total": false, "values": false },
+              "lines": true,
+              "linewidth": 1,
+              "links": [],
+              "nullPointMode": "null as zero",
+              "percentage": false,
+              "pointradius": 5,
+              "points": false,
+              "renderer": "flot",
+              "seriesOverrides": [],
+              "spaceLength": 10,
+              "span": 6,
+              "stack": false,
+              "steppedLine": false,
+              "targets": [
+                {
+                  "expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]) * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
+                  "format": "time_series",
+                  "legendFormat": "{{namespace}}",
+                  "intervalFactor": 2,
+                  "refId": "A"
+                }
+              ],
+              "thresholds": [],
+              "timeFrom": null,
+              "timeShift": null,
+              "title": "CPU Usage",
+              "tooltip": { "shared": true, "sort": 0, "value_type": "individual" },
+              "type": "graph",
+              "xaxis": { "buckets": null, "mode": "time", "name": null, "show": true, "values": [] },
+              "yaxes": [
+                { "format": "short", "label": "cores", "logBase": 1, "max": null, "min": 0, "show": true },
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": null, "show": false }
+              ]
+            }
+          ],
+          "showTitle": true,
+          "title": "Resource Usage"
+        },
+        {
+          "collapse": false,
+          "height": "250px",
+          "panels": [
+            {
+              "aliasColors": {},
+              "bars": false,
+              "dashLength": 10,
+              "dashes": false,
+              "datasource": "$datasource",
+              "fill": 1,
+              "id": 5,
+              "legend": { "alignAsTable": false, "avg": false, "current": false, "max": false, "min": false, "rightSide": false, "show": true, "total": false, "values": false },
+              "lines": true,
+              "linewidth": 1,
+              "links": [],
+              "nullPointMode": "null as zero",
+              "percentage": false,
+              "pointradius": 5,
+              "points": false,
+              "renderer": "flot",
+              "seriesOverrides": [],
+              "spaceLength": 10,
+              "span": 6,
+              "stack": false,
+              "steppedLine": false,
+              "targets": [
+                {
+                  "expr": "100 * sum by (namespace) (container_memory_working_set_bytes{container!=\"\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"}) / on(namespace) group_left() sum by (namespace) (kube_resourcequota{resource=\"limits.memory\", type=\"hard\"})",
+                  "format": "time_series",
+                  "legendFormat": "{{namespace}}",
+                  "intervalFactor": 2,
+                  "refId": "A"
+                }
+              ],
+              "thresholds": [],
+              "timeFrom": null,
+              "timeShift": null,
+              "title": "Memory Quota Usage (%)",
+              "tooltip": { "shared": true, "sort": 0, "value_type": "individual" },
+              "type": "graph",
+              "xaxis": { "buckets": null, "mode": "time", "name": null, "show": true, "values": [] },
+              "yaxes": [
+                { "format": "percent", "label": null, "logBase": 1, "max": 100, "min": 0, "show": true },
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": null, "show": false }
+              ]
+            },
+            {
+              "aliasColors": {},
+              "bars": false,
+              "dashLength": 10,
+              "dashes": false,
+              "datasource": "$datasource",
+              "fill": 1,
+              "id": 6,
+              "legend": { "alignAsTable": false, "avg": false, "current": false, "max": false, "min": false, "rightSide": false, "show": true, "total": false, "values": false },
+              "lines": true,
+              "linewidth": 1,
+              "links": [],
+              "nullPointMode": "null as zero",
+              "percentage": false,
+              "pointradius": 5,
+              "points": false,
+              "renderer": "flot",
+              "seriesOverrides": [],
+              "spaceLength": 10,
+              "span": 6,
+              "stack": false,
+              "steppedLine": false,
+              "targets": [
+                {
+                  "expr": "100 * sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]) * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"}) / on(namespace) group_left() sum by (namespace) (kube_resourcequota{resource=\"limits.cpu\", type=\"hard\"})",
+                  "format": "time_series",
+                  "legendFormat": "{{namespace}}",
+                  "intervalFactor": 2,
+                  "refId": "A"
+                }
+              ],
+              "thresholds": [],
+              "timeFrom": null,
+              "timeShift": null,
+              "title": "CPU Quota Usage (%)",
+              "tooltip": { "shared": true, "sort": 0, "value_type": "individual" },
+              "type": "graph",
+              "xaxis": { "buckets": null, "mode": "time", "name": null, "show": true, "values": [] },
+              "yaxes": [
+                { "format": "percent", "label": null, "logBase": 1, "max": 100, "min": 0, "show": true },
+                { "format": "short", "label": null, "logBase": 1, "max": null, "min": null, "show": false }
+              ]
+            }
+          ],
+          "showTitle": true,
+          "title": "Quota Utilization"
+        }
+      ],
+      "schemaVersion": 14,
+      "style": "dark",
+      "tags": ["openclaw"],
       "templating": {
         "list": [
           {
             "current": { "text": "Prometheus", "value": "prometheus" },
             "hide": 2,
+            "label": null,
             "name": "datasource",
             "options": [],
             "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
             "type": "datasource"
           }
         ]
       },
-      "rows": [
-        {
-          "title": "Pod Health",
-          "collapse": false,
-          "panels": [
-            {
-              "title": "Agent Pods Ready",
-              "type": "timeseries",
-              "span": 6,
-              "datasource": "$datasource",
-              "targets": [
-                {
-                  "expr": "sum by (namespace) (kube_pod_status_ready{condition=\"true\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
-                  "legendFormat": "{{namespace}}"
-                }
-              ]
-            },
-            {
-              "title": "Container Restarts (15m)",
-              "type": "timeseries",
-              "span": 6,
-              "datasource": "$datasource",
-              "targets": [
-                {
-                  "expr": "sum by (namespace, container) (increase(kube_pod_container_status_restarts_total{container=~\"gateway|oauth-proxy\"}[15m]) * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
-                  "legendFormat": "{{namespace}}/{{container}}"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "title": "Resource Usage",
-          "collapse": false,
-          "panels": [
-            {
-              "title": "Memory Usage",
-              "type": "timeseries",
-              "span": 6,
-              "datasource": "$datasource",
-              "fieldConfig": {
-                "defaults": { "unit": "bytes" }
-              },
-              "targets": [
-                {
-                  "expr": "sum by (namespace) (container_memory_working_set_bytes{container!=\"\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
-                  "legendFormat": "{{namespace}}"
-                }
-              ]
-            },
-            {
-              "title": "CPU Usage",
-              "type": "timeseries",
-              "span": 6,
-              "datasource": "$datasource",
-              "targets": [
-                {
-                  "expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]) * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"})",
-                  "legendFormat": "{{namespace}}"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "title": "Quota Utilization",
-          "collapse": false,
-          "panels": [
-            {
-              "title": "Memory Quota Usage (%)",
-              "type": "timeseries",
-              "span": 6,
-              "datasource": "$datasource",
-              "fieldConfig": {
-                "defaults": { "unit": "percent", "max": 100 }
-              },
-              "targets": [
-                {
-                  "expr": "100 * sum by (namespace) (container_memory_working_set_bytes{container!=\"\"} * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"}) / on(namespace) group_left() sum by (namespace) (kube_resourcequota{resource=\"limits.memory\", type=\"hard\"})",
-                  "legendFormat": "{{namespace}}"
-                }
-              ]
-            },
-            {
-              "title": "CPU Quota Usage (%)",
-              "type": "timeseries",
-              "span": 6,
-              "datasource": "$datasource",
-              "fieldConfig": {
-                "defaults": { "unit": "percent", "max": 100 }
-              },
-              "targets": [
-                {
-                  "expr": "100 * sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]) * on(namespace, pod) group_left() kube_pod_labels{label_app=\"openclaw\"}) / on(namespace) group_left() sum by (namespace) (kube_resourcequota{resource=\"limits.cpu\", type=\"hard\"})",
-                  "legendFormat": "{{namespace}}"
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "time": { "from": "now-1h", "to": "now" },
+      "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"], "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"] },
+      "timezone": "browser",
+      "title": "OpenClaw / Agent Health",
+      "version": 1
     }
