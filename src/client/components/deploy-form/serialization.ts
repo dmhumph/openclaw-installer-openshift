@@ -85,13 +85,6 @@ export function createInitialDeployFormConfig(): DeployFormConfig {
     quotaMemory: "6Gi",
     customEgressRules: [],
     rateLimitRpm: "60",
-    contentFilterEnabled: true,
-    contentFilterBlockPii: true,
-    contentFilterMaskEmail: true,
-    contentFilterMaskPhone: true,
-    contentFilterBlockCredentials: true,
-    contentFilterBlockHarmful: true,
-    contentFilterCustomWords: "",
     withA2a: false,
     a2aRealm: "",
     a2aKeycloakNamespace: "keycloak",
@@ -316,13 +309,6 @@ export function applySavedVarsToConfig(
       quotaCpu: getStringVar(vars, "QUOTA_CPU", "quotaCpu") || prev.quotaCpu,
       quotaMemory: getStringVar(vars, "QUOTA_MEMORY", "quotaMemory") || prev.quotaMemory,
       rateLimitRpm: getStringVar(vars, "RATE_LIMIT_RPM", "rateLimitRpm") || prev.rateLimitRpm,
-      contentFilterEnabled: vars.contentFilterEnabled === false ? false : prev.contentFilterEnabled,
-      contentFilterBlockPii: vars.contentFilterBlockPii === false ? false : prev.contentFilterBlockPii,
-      contentFilterMaskEmail: vars.contentFilterMaskEmail === false ? false : prev.contentFilterMaskEmail,
-      contentFilterMaskPhone: vars.contentFilterMaskPhone === false ? false : prev.contentFilterMaskPhone,
-      contentFilterBlockCredentials: vars.contentFilterBlockCredentials === false ? false : prev.contentFilterBlockCredentials,
-      contentFilterBlockHarmful: vars.contentFilterBlockHarmful === false ? false : prev.contentFilterBlockHarmful,
-      contentFilterCustomWords: getStringVar(vars, "CONTENT_FILTER_CUSTOM_WORDS", "contentFilterCustomWords") || prev.contentFilterCustomWords,
       customEgressRules: Array.isArray(vars.customEgressRules)
         ? (vars.customEgressRules as Array<{ destination: string; port: string; protocol: string }>)
         : prev.customEgressRules,
@@ -439,13 +425,6 @@ export function buildDeployRequestBody(params: {
     quotaCpu: config.quotaCpu || undefined,
     quotaMemory: config.quotaMemory || undefined,
     rateLimitRpm: parseInt(config.rateLimitRpm, 10) || 60,
-    contentFilterEnabled: config.contentFilterEnabled,
-    contentFilterBlockPii: config.contentFilterBlockPii,
-    contentFilterMaskEmail: config.contentFilterMaskEmail,
-    contentFilterMaskPhone: config.contentFilterMaskPhone,
-    contentFilterBlockCredentials: config.contentFilterBlockCredentials,
-    contentFilterBlockHarmful: config.contentFilterBlockHarmful,
-    contentFilterCustomWords: config.contentFilterCustomWords || undefined,
     customEgressRules: config.customEgressRules.length > 0
       ? config.customEgressRules
           .filter((r) => r.destination.trim() && r.port.trim())

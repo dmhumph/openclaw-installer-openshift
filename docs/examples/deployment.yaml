@@ -1,0 +1,147 @@
+# Plain Kubernetes deployment for OpenClaw.
+# LiteLLM and OTEL sidecars are optional and omitted from this baseline example.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openclaw
+  namespace: alice-myagent-openclaw
+  labels:
+    app: openclaw
+    app.kubernetes.io/managed-by: openclaw-installer
+    openclaw.prefix: alice
+    openclaw.agent: myagent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openclaw
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: openclaw
+      annotations:
+        openclaw.io/restart-at: "2026-03-17T00:00:00.000Z"
+    spec:
+      initContainers:
+        - name: init-config
+          image: registry.access.redhat.com/ubi9-minimal:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              cp /config/openclaw.json /home/node/.openclaw/openclaw.json
+              chmod 644 /home/node/.openclaw/openclaw.json
+              mkdir -p /home/node/.openclaw/workspace
+              mkdir -p /home/node/.openclaw/skills
+              mkdir -p /home/node/.openclaw/cron
+              mkdir -p /home/node/.openclaw/workspace-alice_myagent
+              cp /agents/AGENTS.md /home/node/.openclaw/workspace-alice_myagent/AGENTS.md 2>/dev/null || true
+              cp /agents/agent.json /home/node/.openclaw/workspace-alice_myagent/agent.json 2>/dev/null || true
+              cp /agents/SOUL.md /home/node/.openclaw/workspace-alice_myagent/SOUL.md 2>/dev/null || true
+              find -L /agents-tree -mindepth 1 -type d -name 'workspace-*' -exec sh -c 'base="$(basename "$1")"; dest="/home/node/.openclaw/$base"; mkdir -p "$dest"; cp -r "$1"/* "$dest"/ 2>/dev/null || true' _ {} \;
+              cp -r /skills-src/. /home/node/.openclaw/skills/ 2>/dev/null || true
+              cp /cron-src/jobs.json /home/node/.openclaw/cron/jobs.json 2>/dev/null || true
+              echo "Config initialized"
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config-template
+              mountPath: /config
+            - name: agent-config
+              mountPath: /agents
+            - name: agent-tree-config
+              mountPath: /agents-tree
+            - name: skills-config
+              mountPath: /skills-src
+            - name: cron-config
+              mountPath: /cron-src
+      containers:
+        - name: gateway
+          image: ghcr.io/openclaw/openclaw:latest
+          imagePullPolicy: Always
+          command:
+            - node
+            - dist/index.js
+            - gateway
+            - run
+            - --bind
+            - lan
+            - --port
+            - "18789"
+          ports:
+            - name: gateway
+              containerPort: 18789
+              protocol: TCP
+          env:
+            - name: HOME
+              value: /home/node
+            - name: NODE_ENV
+              value: production
+            - name: OPENCLAW_CONFIG_DIR
+              value: /home/node/.openclaw
+            - name: OPENCLAW_STATE_DIR
+              value: /home/node/.openclaw
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: OPENCLAW_GATEWAY_TOKEN
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: SSH_IDENTITY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: SSH_IDENTITY
+                  optional: true
+            - name: SSH_CERTIFICATE
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: SSH_CERTIFICATE
+                  optional: true
+            - name: SSH_KNOWN_HOSTS
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: SSH_KNOWN_HOSTS
+                  optional: true
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: openclaw-home
+          persistentVolumeClaim:
+            claimName: openclaw-home-pvc
+        - name: config-template
+          configMap:
+            name: openclaw-config
+        - name: agent-config
+          configMap:
+            name: openclaw-agent
+        - name: agent-tree-config
+          configMap:
+            name: openclaw-agent-tree
+        - name: skills-config
+          configMap:
+            name: openclaw-skills
+        - name: cron-config
+          configMap:
+            name: openclaw-cron
+        - name: tmp-volume
+          emptyDir: {}
