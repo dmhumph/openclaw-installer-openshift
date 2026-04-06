@@ -141,6 +141,13 @@ export interface DeployFormConfig {
   quotaMemory: string;
   customEgressRules: Array<{ destination: string; port: string; protocol: string }>;
   rateLimitRpm: string;
+  contentFilterEnabled: boolean;
+  contentFilterBlockPii: boolean;
+  contentFilterMaskEmail: boolean;
+  contentFilterMaskPhone: boolean;
+  contentFilterBlockCredentials: boolean;
+  contentFilterBlockHarmful: boolean;
+  contentFilterCustomWords: string;
   withA2a: boolean;
   a2aRealm: string;
   a2aKeycloakNamespace: string;

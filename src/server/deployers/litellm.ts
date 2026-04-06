@@ -159,6 +159,62 @@ export function generateLitellmConfig(config: DeployConfig, masterKey: string): 
   lines.push("  drop_params: true");
   lines.push("  num_retries: 2");
 
+  // ── Content filtering guardrail (built-in, no external services) ──
+  const filterEnabled = config.contentFilterEnabled !== false;
+  if (filterEnabled) {
+    const blockPii = config.contentFilterBlockPii !== false;
+    const maskEmail = config.contentFilterMaskEmail !== false;
+    const maskPhone = config.contentFilterMaskPhone !== false;
+    const blockCreds = config.contentFilterBlockCredentials !== false;
+    const blockHarmful = config.contentFilterBlockHarmful !== false;
+    const customWords = (config.contentFilterCustomWords || "")
+      .split(",").map((w) => w.trim()).filter((w) => w.length > 0);
+
+    lines.push("");
+    lines.push("guardrails:");
+    lines.push("  - guardrail_name: openclaw-content-filter");
+    lines.push("    litellm_params:");
+    lines.push("      guardrail: litellm_content_filter");
+    lines.push("      mode: pre_call");
+    lines.push("      default_on: true");
+
+    const patterns: Array<{ type: string; name: string; action: string }> = [];
+    if (blockPii) {
+      patterns.push({ type: "prebuilt", name: "us_ssn", action: "BLOCK" });
+      patterns.push({ type: "prebuilt", name: "credit_card", action: "BLOCK" });
+    }
+    if (maskEmail) patterns.push({ type: "prebuilt", name: "email", action: "MASK" });
+    if (maskPhone) patterns.push({ type: "prebuilt", name: "phone", action: "MASK" });
+    if (blockCreds) {
+      patterns.push({ type: "prebuilt", name: "aws_access_key", action: "BLOCK" });
+      patterns.push({ type: "prebuilt", name: "github_token", action: "BLOCK" });
+    }
+    if (patterns.length > 0) {
+      lines.push("      patterns:");
+      for (const p of patterns) {
+        lines.push(`        - pattern_type: ${p.type}`);
+        lines.push(`          pattern_name: ${p.name}`);
+        lines.push(`          action: ${p.action}`);
+      }
+    }
+    if (blockHarmful) {
+      lines.push("      categories:");
+      lines.push("        - category: harmful_violence");
+      lines.push("          enabled: true");
+      lines.push("          action: BLOCK");
+      lines.push("        - category: harmful_self_harm");
+      lines.push("          enabled: true");
+      lines.push("          action: BLOCK");
+    }
+    if (customWords.length > 0) {
+      lines.push("      blocked_words:");
+      for (const word of customWords) {
+        lines.push(`        - keyword: "${word}"`);
+        lines.push("          action: BLOCK");
+      }
+    }
+  }
+
   lines.push("");
   lines.push("general_settings:");
   lines.push(`  master_key: "${masterKey}"`);

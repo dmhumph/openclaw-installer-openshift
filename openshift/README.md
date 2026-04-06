@@ -221,6 +221,34 @@ oc replace -f /tmp/egress.yaml
 
 **Important**: OVN EgressFirewall rules are evaluated **top to bottom**. The first matching rule wins. Always keep the `Deny 0.0.0.0/0` rule last. DNS-based rules (`dnsName`) resolve at the time the connection is made, so they work with CDNs and dynamic IPs.
 
+### LLM Proxy and Content Filtering
+
+Each agent includes a LiteLLM proxy sidecar that routes all LLM requests for token tracking, rate limiting, and content filtering.
+
+**Viewing current content filter policy:**
+
+```bash
+oc get configmap litellm-config -n <agent-namespace> -o jsonpath='{.data.config\.yaml}'
+```
+
+**Modifying content filtering post-deployment:**
+
+```bash
+# Export, edit the guardrails section, then apply
+oc get configmap litellm-config -n <agent-namespace> -o yaml > /tmp/litellm-config.yaml
+# Edit /tmp/litellm-config.yaml — change actions (BLOCK/MASK), add patterns, add blocked words
+oc replace -f /tmp/litellm-config.yaml
+oc rollout restart deployment/openclaw -n <agent-namespace>
+```
+
+**Viewing LLM proxy metrics:**
+
+```bash
+oc exec <agent-pod> -n <agent-namespace> -c litellm -- \
+  python3 -c "import urllib.request; print(urllib.request.urlopen('http://localhost:4000/metrics').read().decode())" \
+  | grep litellm_
+```
+
 ## Ongoing Management
 
 ```bash
@@ -235,6 +263,9 @@ oc get pods --all-namespaces -l app=openclaw
 
 # View agent gateway logs
 oc logs <agent-pod> -n <agent-namespace> -c gateway --tail=50
+
+# View LiteLLM proxy logs
+oc logs <agent-pod> -n <agent-namespace> -c litellm --tail=50
 ```
 
 ## Troubleshooting
