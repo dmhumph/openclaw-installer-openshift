@@ -1100,6 +1100,105 @@ export default function DeployForm({ onDeployStarted }: DeployFormProps) {
         {isClusterMode && (
           <details style={{ marginTop: "1rem" }}>
             <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+              Content Filtering
+              <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>
+                {" "}PII masking, credential blocking, harmful content detection
+              </span>
+            </summary>
+
+            <div className="card" style={{ marginTop: "0.75rem" }}>
+              <div className="form-group">
+                <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <input
+                    type="checkbox"
+                    checked={config.contentFilterEnabled}
+                    onChange={(e) =>
+                      setConfig((prev) => ({ ...prev, contentFilterEnabled: e.target.checked }))
+                    }
+                  />
+                  Enable content filtering
+                </label>
+                <div className="hint">
+                  Built-in content filter via the LiteLLM proxy. Detects and blocks/masks sensitive content in LLM requests. No external services required.
+                </div>
+              </div>
+
+              {config.contentFilterEnabled && (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginTop: "0.5rem" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.9rem" }}>
+                      <input
+                        type="checkbox"
+                        checked={config.contentFilterBlockPii}
+                        onChange={(e) =>
+                          setConfig((prev) => ({ ...prev, contentFilterBlockPii: e.target.checked }))
+                        }
+                      />
+                      Block SSN &amp; credit cards
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.9rem" }}>
+                      <input
+                        type="checkbox"
+                        checked={config.contentFilterMaskEmail}
+                        onChange={(e) =>
+                          setConfig((prev) => ({ ...prev, contentFilterMaskEmail: e.target.checked }))
+                        }
+                      />
+                      Mask email addresses
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.9rem" }}>
+                      <input
+                        type="checkbox"
+                        checked={config.contentFilterMaskPhone}
+                        onChange={(e) =>
+                          setConfig((prev) => ({ ...prev, contentFilterMaskPhone: e.target.checked }))
+                        }
+                      />
+                      Mask phone numbers
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.9rem" }}>
+                      <input
+                        type="checkbox"
+                        checked={config.contentFilterBlockCredentials}
+                        onChange={(e) =>
+                          setConfig((prev) => ({ ...prev, contentFilterBlockCredentials: e.target.checked }))
+                        }
+                      />
+                      Block API keys &amp; tokens
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.9rem" }}>
+                      <input
+                        type="checkbox"
+                        checked={config.contentFilterBlockHarmful}
+                        onChange={(e) =>
+                          setConfig((prev) => ({ ...prev, contentFilterBlockHarmful: e.target.checked }))
+                        }
+                      />
+                      Block harmful content
+                    </label>
+                  </div>
+
+                  <div className="form-group" style={{ marginTop: "0.75rem" }}>
+                    <label>Custom blocked words</label>
+                    <input
+                      type="text"
+                      placeholder="confidential, proprietary, internal-only"
+                      value={config.contentFilterCustomWords}
+                      onChange={(e) => update("contentFilterCustomWords", e.target.value)}
+                    />
+                    <div className="hint">
+                      Comma-separated list of words/phrases to block in LLM requests.
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </details>
+        )}
+
+        {isClusterMode && (
+          <details style={{ marginTop: "1rem" }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>
               Kagenti A2A
               <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>
                 {" "}Optional: enable A2A sidecar + Kagenti namespace wiring

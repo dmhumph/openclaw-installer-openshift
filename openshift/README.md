@@ -221,6 +221,71 @@ oc replace -f /tmp/egress.yaml
 
 **Important**: OVN EgressFirewall rules are evaluated **top to bottom**. The first matching rule wins. Always keep the `Deny 0.0.0.0/0` rule last. DNS-based rules (`dnsName`) resolve at the time the connection is made, so they work with CDNs and dynamic IPs.
 
+### LLM Proxy and Content Filtering
+
+Each agent namespace includes a LiteLLM proxy sidecar that routes all LLM requests for token tracking, rate limiting, and content filtering. The proxy exposes Prometheus metrics at `/metrics` on port 4000.
+
+**Viewing the current content filter policy:**
+
+```bash
+oc get configmap litellm-config -n <agent-namespace> -o jsonpath='{.data.config\.yaml}'
+```
+
+**Modifying content filtering post-deployment:**
+
+```bash
+# Export the current config
+oc get configmap litellm-config -n <agent-namespace> -o yaml > /tmp/litellm-config.yaml
+```
+
+Edit the `guardrails` section in the config.yaml data. You can:
+
+- **Change actions**: Switch between `BLOCK` (reject request) and `MASK` (redact and continue)
+- **Add/remove pattern types**: `us_ssn`, `credit_card`, `email`, `phone`, `aws_access_key`, `github_token`
+- **Add custom blocked words**: Add entries under `blocked_words`
+- **Disable content filtering**: Remove the entire `guardrails` section
+- **Add custom regex patterns**: Add entries with `pattern_type: regex`
+
+```yaml
+guardrails:
+  - guardrail_name: openclaw-content-filter
+    litellm_params:
+      guardrail: litellm_content_filter
+      mode: pre_call
+      default_on: true
+      patterns:
+        - pattern_type: prebuilt
+          pattern_name: us_ssn
+          action: BLOCK
+        - pattern_type: prebuilt
+          pattern_name: email
+          action: MASK
+        # Add custom regex pattern
+        - pattern_type: regex
+          pattern: '\bINTERNAL-[A-Z0-9]+\b'
+          name: internal_id
+          action: MASK
+      blocked_words:
+        - keyword: "confidential"
+          action: BLOCK
+```
+
+Apply the updated config and restart the pod:
+
+```bash
+oc replace -f /tmp/litellm-config.yaml
+oc rollout restart deployment/openclaw -n <agent-namespace>
+```
+
+**Viewing LLM proxy metrics:**
+
+```bash
+# Check token usage, request counts, latency
+oc exec <agent-pod> -n <agent-namespace> -c litellm -- \
+  python3 -c "import urllib.request; print(urllib.request.urlopen('http://localhost:4000/metrics').read().decode())" \
+  | grep litellm_
+```
+
 ## Ongoing Management
 
 ```bash
@@ -235,6 +300,9 @@ oc get pods --all-namespaces -l app=openclaw
 
 # View agent gateway logs
 oc logs <agent-pod> -n <agent-namespace> -c gateway --tail=50
+
+# View LiteLLM proxy logs
+oc logs <agent-pod> -n <agent-namespace> -c litellm --tail=50
 ```
 
 ## Troubleshooting

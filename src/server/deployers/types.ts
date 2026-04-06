@@ -112,6 +112,14 @@ export interface DeployConfig {
   quotaEnabled?: boolean; // default: true
   // LLM proxy rate limiting (requests per minute, default 60)
   rateLimitRpm?: number;
+  // Content filtering (LiteLLM built-in guardrail, enabled by default)
+  contentFilterEnabled?: boolean;  // default: true
+  contentFilterBlockPii?: boolean; // Block SSN, credit cards (default: true)
+  contentFilterMaskEmail?: boolean; // Mask email addresses (default: true)
+  contentFilterMaskPhone?: boolean; // Mask phone numbers (default: true)
+  contentFilterBlockCredentials?: boolean; // Block AWS keys, GitHub tokens (default: true)
+  contentFilterBlockHarmful?: boolean; // Block violent/self-harm content (default: true)
+  contentFilterCustomWords?: string; // Comma-separated blocked words
   // Custom egress rules (additional endpoints beyond auto-generated ones)
   customEgressRules?: Array<{
     destination: string;  // DNS name (e.g. "github.com") or CIDR (e.g. "10.1.2.3/32")
