@@ -389,7 +389,7 @@ router.post("/:id/approve-device", async (req, res) => {
       stderr = result.stderr.trim();
     } else {
       const ns = instance.config.namespace || instance.containerId || "";
-      const { coreApi, execInPod } = await import("../services/k8s.js");
+      const { coreApi } = await import("../services/k8s.js");
       const core = coreApi();
       const podList = await core.listNamespacedPod({
         namespace: ns,
@@ -402,12 +402,41 @@ router.post("/:id/approve-device", async (req, res) => {
         return;
       }
 
-      const result = await execInPod(
-        ns,
-        podName,
-        "gateway",
-        ["openclaw", "devices", "approve", "--latest"],
-      );
+      // Use direct WebSocket exec instead of @kubernetes/client-node Exec
+      // (the k8s client exec hangs in some OpenShift network configurations)
+      const { readFileSync } = await import("node:fs");
+      const WebSocket = (await import("ws")).default;
+      const token = readFileSync("/var/run/secrets/kubernetes.io/serviceaccount/token", "utf8").trim();
+      const cmdParts = ["openclaw", "devices", "approve", "--latest"]
+        .map((c) => `command=${encodeURIComponent(c)}`)
+        .join("&");
+      const wsUrl = `wss://kubernetes.default.svc/api/v1/namespaces/${ns}/pods/${podName}/exec?container=gateway&${cmdParts}&stdout=true&stderr=true`;
+
+      const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+        let out = "";
+        let err = "";
+        const ws = new WebSocket(wsUrl, "v4.channel.k8s.io", {
+          headers: { Authorization: `Bearer ${token}` },
+          rejectUnauthorized: false,
+        });
+        const timer = setTimeout(() => {
+          ws.close();
+          reject(new Error("Pod exec timed out after 15 seconds"));
+        }, 15_000);
+        ws.on("message", (data: Buffer) => {
+          const buf = Buffer.from(data);
+          if (buf[0] === 1) out += buf.slice(1).toString();
+          if (buf[0] === 2) err += buf.slice(1).toString();
+        });
+        ws.on("close", () => {
+          clearTimeout(timer);
+          resolve({ stdout: out.trim(), stderr: err.trim() });
+        });
+        ws.on("error", (e: Error) => {
+          clearTimeout(timer);
+          reject(e);
+        });
+      });
       stdout = result.stdout;
       stderr = result.stderr;
     }
