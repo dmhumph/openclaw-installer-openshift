@@ -470,7 +470,6 @@ router.post("/:id/approve-device", async (req, res) => {
 
       stdout = `Approved device ${deviceId}`;
     }
-    }
 
     res.json({
       status: "approved",
