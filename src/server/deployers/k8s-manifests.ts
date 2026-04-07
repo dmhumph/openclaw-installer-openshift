@@ -684,6 +684,18 @@ export function ingressNetworkPolicyManifest(ns: string): k8s.V1NetworkPolicy {
             },
           ],
         },
+        {
+          // Allow Prometheus scraping from monitoring namespaces
+          _from: [
+            {
+              namespaceSelector: {
+                matchLabels: {
+                  "network.openshift.io/policy-group": "monitoring",
+                },
+              },
+            },
+          ],
+        },
       ],
     },
   };
