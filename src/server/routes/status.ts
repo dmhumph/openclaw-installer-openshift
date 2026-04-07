@@ -402,43 +402,74 @@ router.post("/:id/approve-device", async (req, res) => {
         return;
       }
 
-      // Use direct WebSocket exec instead of @kubernetes/client-node Exec
-      // (the k8s client exec hangs in some OpenShift network configurations)
+      // Read pending.json and approve the latest request by directly
+      // manipulating device files via WebSocket exec (the openclaw CLI
+      // hangs when there are no pending requests).
       const { readFileSync } = await import("node:fs");
       const WebSocket = (await import("ws")).default;
-      const token = readFileSync("/var/run/secrets/kubernetes.io/serviceaccount/token", "utf8").trim();
-      const cmdParts = ["openclaw", "devices", "approve", "--latest"]
-        .map((c) => `command=${encodeURIComponent(c)}`)
-        .join("&");
-      const wsUrl = `wss://kubernetes.default.svc/api/v1/namespaces/${ns}/pods/${podName}/exec?container=gateway&${cmdParts}&stdout=true&stderr=true`;
+      const saToken = readFileSync("/var/run/secrets/kubernetes.io/serviceaccount/token", "utf8").trim();
 
-      const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-        let out = "";
-        let err = "";
-        const ws = new WebSocket(wsUrl, "v4.channel.k8s.io", {
-          headers: { Authorization: `Bearer ${token}` },
-          rejectUnauthorized: false,
+      const wsExec = (cmd: string[]): Promise<string> => {
+        const cmdQuery = cmd.map((c) => `command=${encodeURIComponent(c)}`).join("&");
+        const wsUrl = `wss://kubernetes.default.svc/api/v1/namespaces/${ns}/pods/${podName}/exec?container=gateway&${cmdQuery}&stdout=true&stderr=true`;
+        return new Promise((resolve, reject) => {
+          let out = "";
+          const ws = new WebSocket(wsUrl, "v4.channel.k8s.io", {
+            headers: { Authorization: `Bearer ${saToken}` },
+            rejectUnauthorized: false,
+          });
+          const timer = setTimeout(() => { ws.close(); reject(new Error("exec timed out")); }, 10_000);
+          ws.on("message", (data: Buffer) => {
+            const buf = Buffer.from(data);
+            if (buf[0] === 1 || buf[0] === 2) out += buf.slice(1).toString();
+          });
+          ws.on("close", () => { clearTimeout(timer); resolve(out.trim()); });
+          ws.on("error", (e: Error) => { clearTimeout(timer); reject(e); });
         });
-        const timer = setTimeout(() => {
-          ws.close();
-          reject(new Error("Pod exec timed out after 15 seconds"));
-        }, 15_000);
-        ws.on("message", (data: Buffer) => {
-          const buf = Buffer.from(data);
-          if (buf[0] === 1) out += buf.slice(1).toString();
-          if (buf[0] === 2) err += buf.slice(1).toString();
-        });
-        ws.on("close", () => {
-          clearTimeout(timer);
-          resolve({ stdout: out.trim(), stderr: err.trim() });
-        });
-        ws.on("error", (e: Error) => {
-          clearTimeout(timer);
-          reject(e);
-        });
-      });
-      stdout = result.stdout;
-      stderr = result.stderr;
+      };
+
+      // Read pending devices
+      const pendingRaw = await wsExec(["cat", "/home/node/.openclaw/devices/pending.json"]);
+      const pending = JSON.parse(pendingRaw || "{}") as Record<string, Record<string, unknown>>;
+      const pendingIds = Object.keys(pending);
+      if (pendingIds.length === 0) {
+        throw new Error("No pending device pairing requests to approve");
+      }
+
+      // Read paired devices
+      const pairedRaw = await wsExec(["cat", "/home/node/.openclaw/devices/paired.json"]);
+      const paired = JSON.parse(pairedRaw || "{}") as Record<string, Record<string, unknown>>;
+
+      // Approve the latest pending request
+      const latestId = pendingIds[pendingIds.length - 1];
+      const req = pending[latestId] as Record<string, unknown>;
+      const deviceId = String(req.deviceId || latestId);
+      const nowMs = Date.now();
+      paired[deviceId] = {
+        deviceId,
+        publicKey: req.publicKey,
+        displayName: `Web UI (${req.platform || "unknown"})`,
+        platform: req.platform,
+        clientId: req.clientId,
+        clientMode: req.clientMode,
+        role: req.role,
+        roles: req.roles,
+        scopes: req.scopes,
+        approvedScopes: req.scopes,
+        tokens: {},
+        createdAtMs: nowMs,
+        approvedAtMs: nowMs,
+      };
+      delete pending[latestId];
+
+      // Write back
+      const escapedPaired = JSON.stringify(JSON.stringify(paired));
+      const escapedPending = JSON.stringify(JSON.stringify(pending));
+      await wsExec(["sh", "-c", `echo ${escapedPaired} > /home/node/.openclaw/devices/paired.json`]);
+      await wsExec(["sh", "-c", `echo ${escapedPending} > /home/node/.openclaw/devices/pending.json`]);
+
+      stdout = `Approved device ${deviceId}`;
+    }
     }
 
     res.json({
