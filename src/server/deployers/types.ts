@@ -112,6 +112,8 @@ export interface DeployConfig {
   quotaEnabled?: boolean; // default: true
   // LLM proxy rate limiting (requests per minute, default 60)
   rateLimitRpm?: number;
+  // Dev mode egress — allows common development endpoints (GitHub, npm, PyPI, etc.)
+  devModeEgress?: boolean;
   // Content filtering (LiteLLM built-in guardrail, enabled by default)
   contentFilterEnabled?: boolean;
   contentFilterBlockPii?: boolean;

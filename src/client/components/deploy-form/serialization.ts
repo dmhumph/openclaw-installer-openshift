@@ -84,6 +84,7 @@ export function createInitialDeployFormConfig(): DeployFormConfig {
     quotaCpu: "4",
     quotaMemory: "6Gi",
     customEgressRules: [],
+    devModeEgress: false,
     rateLimitRpm: "60",
     contentFilterEnabled: true,
     contentFilterBlockPii: true,
@@ -323,6 +324,7 @@ export function applySavedVarsToConfig(
       contentFilterBlockCredentials: vars.contentFilterBlockCredentials === false ? false : prev.contentFilterBlockCredentials,
       contentFilterBlockHarmful: vars.contentFilterBlockHarmful === false ? false : prev.contentFilterBlockHarmful,
       contentFilterCustomWords: getStringVar(vars, "CONTENT_FILTER_CUSTOM_WORDS", "contentFilterCustomWords") || prev.contentFilterCustomWords,
+      devModeEgress: vars.devModeEgress === true || vars.DEV_MODE_EGRESS === "true" || prev.devModeEgress,
       customEgressRules: Array.isArray(vars.customEgressRules)
         ? (vars.customEgressRules as Array<{ destination: string; port: string; protocol: string }>)
         : prev.customEgressRules,
@@ -446,6 +448,7 @@ export function buildDeployRequestBody(params: {
     contentFilterBlockCredentials: config.contentFilterBlockCredentials,
     contentFilterBlockHarmful: config.contentFilterBlockHarmful,
     contentFilterCustomWords: config.contentFilterCustomWords || undefined,
+    devModeEgress: config.devModeEgress || undefined,
     customEgressRules: config.customEgressRules.length > 0
       ? config.customEgressRules
           .filter((r) => r.destination.trim() && r.port.trim())

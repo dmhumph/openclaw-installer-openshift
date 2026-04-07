@@ -140,6 +140,7 @@ export interface DeployFormConfig {
   quotaCpu: string;
   quotaMemory: string;
   customEgressRules: Array<{ destination: string; port: string; protocol: string }>;
+  devModeEgress: boolean;
   rateLimitRpm: string;
   contentFilterEnabled: boolean;
   contentFilterBlockPii: boolean;

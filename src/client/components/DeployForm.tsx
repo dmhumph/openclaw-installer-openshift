@@ -1025,9 +1025,25 @@ export default function DeployForm({ onDeployStarted }: DeployFormProps) {
             </summary>
 
             <div className="card" style={{ marginTop: "0.75rem" }}>
+              <div className="form-group">
+                <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <input
+                    type="checkbox"
+                    checked={config.devModeEgress}
+                    onChange={(e) =>
+                      setConfig((prev) => ({ ...prev, devModeEgress: e.target.checked }))
+                    }
+                  />
+                  Enable dev mode endpoints
+                </label>
+                <div className="hint">
+                  Allows access to common development sites: GitHub, GitLab, npm, PyPI, Go modules, Maven, Docker Hub, CDNs, Stack Overflow, and MDN. All on HTTPS only.
+                </div>
+              </div>
+
               <div className="hint" style={{ marginBottom: "0.75rem" }}>
                 The EgressFirewall automatically allows your configured model endpoint and LLM provider APIs.
-                Add rules here for any additional endpoints your agent needs to reach (e.g., git repos, internal APIs).
+                Add rules here for any additional endpoints your agent needs to reach beyond the dev mode defaults.
               </div>
 
               {config.customEgressRules.map((rule, idx) => (

@@ -1063,6 +1063,48 @@ export function egressFirewallManifest(
     });
   }
 
+  // ── Dev mode egress (common development endpoints) ──
+  if (config.devModeEgress) {
+    const devEndpoints = [
+      // Git hosting
+      "github.com",
+      "gitlab.com",
+      "bitbucket.org",
+      // Package registries
+      "registry.npmjs.org",
+      "www.npmjs.com",
+      "pypi.org",
+      "files.pythonhosted.org",
+      "rubygems.org",
+      "crates.io",
+      "static.crates.io",
+      "pkg.go.dev",
+      "proxy.golang.org",
+      "sum.golang.org",
+      "repo.maven.apache.org",
+      // Container registries
+      "registry.hub.docker.com",
+      "docker.io",
+      "ghcr.io",
+      "quay.io",
+      // CDN / assets
+      "cdn.jsdelivr.net",
+      "unpkg.com",
+      "cdnjs.cloudflare.com",
+      // Documentation
+      "docs.github.com",
+      "stackoverflow.com",
+      "developer.mozilla.org",
+    ];
+    for (const dns of devEndpoints) {
+      rules.push({
+        type: "Allow",
+        to: { dnsName: dns },
+        ports: [{ protocol: "TCP", port: 443 }],
+      });
+    }
+  }
+
   // ── Custom egress rules (user-specified additional endpoints) ──
   if (config.customEgressRules && config.customEgressRules.length > 0) {
     for (const rule of config.customEgressRules) {
