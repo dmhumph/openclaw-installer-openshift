@@ -184,7 +184,7 @@ export function generateLitellmConfig(config: DeployConfig, masterKey: string): 
       patterns.push({ type: "prebuilt", name: "credit_card", action: "BLOCK" });
     }
     if (maskEmail) patterns.push({ type: "prebuilt", name: "email", action: "MASK" });
-    if (maskPhone) patterns.push({ type: "prebuilt", name: "phone", action: "MASK" });
+    if (maskPhone) patterns.push({ type: "prebuilt", name: "us_phone", action: "MASK" });
     if (blockCreds) {
       patterns.push({ type: "prebuilt", name: "aws_access_key", action: "BLOCK" });
       patterns.push({ type: "prebuilt", name: "github_token", action: "BLOCK" });
