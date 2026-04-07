@@ -61,6 +61,16 @@ export async function execInPod(
   });
 
   return await new Promise<ExecResult>((resolve, reject) => {
+    // Timeout to prevent hanging on WebSocket exec connections
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(Object.assign(new Error("Pod exec timed out after 20 seconds"), {
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+      }));
+    }, 20_000);
+
     void exec.exec(
       namespace,
       podName,
@@ -71,6 +81,7 @@ export async function execInPod(
       null,
       false,
       (status) => {
+        clearTimeout(timeout);
         if (settled) return;
         settled = true;
         const code = Number(

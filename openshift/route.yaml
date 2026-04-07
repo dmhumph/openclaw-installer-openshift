@@ -5,6 +5,8 @@ metadata:
   namespace: openclaw-installer
   labels:
     app.kubernetes.io/name: openclaw-installer
+  annotations:
+    haproxy.router.openshift.io/timeout: 120s
 spec:
   to:
     kind: Service
