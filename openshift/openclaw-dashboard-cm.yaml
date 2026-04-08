@@ -326,7 +326,7 @@ data:
               "steppedLine": false,
               "targets": [
                 {
-                  "expr": "sum by (requested_model) (increase(litellm_total_tokens_metric[5m]))",
+                  "expr": "sum by (requested_model) (increase(litellm_total_tokens_metric_total[5m]))",
                   "format": "time_series",
                   "legendFormat": "{{requested_model}}",
                   "intervalFactor": 2,
@@ -369,7 +369,7 @@ data:
               "steppedLine": false,
               "targets": [
                 {
-                  "expr": "sum by (requested_model) (rate(litellm_proxy_total_requests_metric[5m]) * 60)",
+                  "expr": "sum by (requested_model) (rate(litellm_proxy_total_requests_metric_total[5m]) * 60)",
                   "format": "time_series",
                   "legendFormat": "{{requested_model}}",
                   "intervalFactor": 2,
@@ -470,7 +470,7 @@ data:
               "steppedLine": false,
               "targets": [
                 {
-                  "expr": "sum by (requested_model) (increase(litellm_proxy_failed_requests_metric[5m]))",
+                  "expr": "sum by (requested_model) (increase(litellm_proxy_failed_requests_metric_total[5m]))",
                   "format": "time_series",
                   "legendFormat": "{{requested_model}}",
                   "intervalFactor": 2,
