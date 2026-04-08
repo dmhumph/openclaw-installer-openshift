@@ -189,6 +189,15 @@ export function generateLitellmConfig(config: DeployConfig, masterKey: string): 
       patterns.push({ type: "prebuilt", name: "aws_access_key", action: "BLOCK" });
       patterns.push({ type: "prebuilt", name: "github_token", action: "BLOCK" });
     }
+    if (blockHarmful) {
+      // Use specific prebuilt patterns instead of broad categories.
+      // The harmful_violence category blocks common dev terms like "kill"
+      // (as in "kill -9", "kill the process"). Use targeted patterns instead.
+      patterns.push({ type: "prebuilt", name: "self_harm_suicide", action: "BLOCK" });
+      patterns.push({ type: "prebuilt", name: "terrorism", action: "BLOCK" });
+      patterns.push({ type: "prebuilt", name: "explosives", action: "BLOCK" });
+      patterns.push({ type: "prebuilt", name: "harassment_hate", action: "BLOCK" });
+    }
     if (patterns.length > 0) {
       lines.push("      patterns:");
       for (const p of patterns) {
@@ -196,15 +205,6 @@ export function generateLitellmConfig(config: DeployConfig, masterKey: string): 
         lines.push(`          pattern_name: ${p.name}`);
         lines.push(`          action: ${p.action}`);
       }
-    }
-    if (blockHarmful) {
-      lines.push("      categories:");
-      lines.push("        - category: harmful_violence");
-      lines.push("          enabled: true");
-      lines.push("          action: BLOCK");
-      lines.push("        - category: harmful_self_harm");
-      lines.push("          enabled: true");
-      lines.push("          action: BLOCK");
     }
     if (customWords.length > 0) {
       lines.push("      blocked_words:");
