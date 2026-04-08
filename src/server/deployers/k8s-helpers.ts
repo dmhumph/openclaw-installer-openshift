@@ -60,12 +60,14 @@ export function normalizeModelRef(config: DeployConfig, modelRef: string): strin
   if (!trimmed) return trimmed;
   if (trimmed.includes("/")) return trimmed;
 
-  if (config.inferenceProvider === "anthropic") return `anthropic/${trimmed}`;
+  if (config.inferenceProvider === "anthropic") {
+    return shouldUseLitellmProxy(config) ? `litellm/${trimmed}` : `anthropic/${trimmed}`;
+  }
   if (config.inferenceProvider === "openai") {
-    return `openai/${trimmed}`;
+    return shouldUseLitellmProxy(config) ? `litellm/${trimmed}` : `openai/${trimmed}`;
   }
   if (config.inferenceProvider === "custom-endpoint") {
-    return `${CUSTOM_ENDPOINT_PROVIDER}/${trimmed}`;
+    return shouldUseLitellmProxy(config) ? `litellm/${trimmed}` : `${CUSTOM_ENDPOINT_PROVIDER}/${trimmed}`;
   }
   // Fix for #1: check litellm proxy before falling back to direct vertex providers
   if (config.inferenceProvider === "vertex-anthropic") {
@@ -177,15 +179,16 @@ function buildAgentModelConfig(config: DeployConfig, primaryModelRef: string): {
 export function deriveModel(config: DeployConfig): string {
   if (config.agentModel) return normalizeModelRef(config, config.agentModel);
   if (config.inferenceProvider === "anthropic") {
-    return `anthropic/${config.anthropicModel?.trim() || "claude-sonnet-4-6"}`;
+    const model = config.anthropicModel?.trim() || "claude-sonnet-4-6";
+    return shouldUseLitellmProxy(config) ? `litellm/${model}` : `anthropic/${model}`;
   }
   if (config.inferenceProvider === "openai") {
-    return `openai/${config.openaiModel?.trim() || "gpt-5.4"}`;
+    const model = config.openaiModel?.trim() || "gpt-5.4";
+    return shouldUseLitellmProxy(config) ? `litellm/${model}` : `openai/${model}`;
   }
   if (config.inferenceProvider === "custom-endpoint") {
-    return config.modelEndpointModel?.trim()
-      ? normalizeModelRef(config, config.modelEndpointModel)
-      : `${CUSTOM_ENDPOINT_PROVIDER}/default`;
+    const model = config.modelEndpointModel?.trim() || "default";
+    return shouldUseLitellmProxy(config) ? `litellm/${model}` : normalizeModelRef(config, model);
   }
   if (config.inferenceProvider === "vertex-anthropic") {
     const model = config.vertexAnthropicModel?.trim() || config.agentModel?.trim() || "claude-sonnet-4-6";
