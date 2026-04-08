@@ -492,6 +492,7 @@ export function buildOpenClawConfig(config: DeployConfig, gatewayToken: string):
           litellm: {
             baseUrl: `http://localhost:${LITELLM_PORT}/v1`,
             api: "openai-completions",
+            apiKey: { source: "env", provider: "default", id: "LITELLM_API_KEY" },
             models: litellmRegisteredModelNames(config)
               .filter((name) => name !== litellmModelName(config))
               .map((name) => ({ id: name, name })),

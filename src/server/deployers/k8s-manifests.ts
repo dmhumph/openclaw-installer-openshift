@@ -271,14 +271,14 @@ export function deploymentManifest(
     }
   }
 
-  if (config.vertexEnabled && useProxy) {
-    // LiteLLM proxy mode: provider config in openclaw.json points to the sidecar,
-    // just need the API key for authentication
+  if (useProxy) {
+    // LiteLLM proxy mode: gateway authenticates to the sidecar with the master key
     envVars.push({
       name: "LITELLM_API_KEY",
       valueFrom: { secretKeyRef: { name: "openclaw-secrets", key: "LITELLM_MASTER_KEY", optional: true } },
     });
-  } else if (config.vertexEnabled) {
+  }
+  if (config.vertexEnabled && !useProxy) {
     // Direct Vertex mode (legacy): gateway gets GCP creds directly
     envVars.push({ name: "VERTEX_ENABLED", value: "true" });
     envVars.push({ name: "VERTEX_PROVIDER", value: config.vertexProvider || "anthropic" });
